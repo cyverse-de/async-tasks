@@ -4,14 +4,13 @@ import (
 	"context"
 
 	"database/sql"
+	"github.com/Masterminds/squirrel"
 	"github.com/cyverse-de/async-tasks/model"
 	"github.com/cyverse-de/dbutil"
 	"github.com/lib/pq"
 
 	"errors"
-	"fmt"
 	"github.com/sirupsen/logrus"
-	"strings"
 	"time"
 
 	"encoding/json"
@@ -61,9 +60,8 @@ func (d *DBConnection) Close() error {
 
 // GetCount gets a count of async tasks in the DB
 func (d *DBConnection) GetCount() (int64, error) {
-	row := d.db.QueryRow("SELECT COUNT(*) FROM async_tasks")
 	var res struct{ count int64 }
-	err := row.Scan(&res.count)
+	err := squirrel.Select("COUNT(*)").From("async_tasks").RunWith(d.db).QueryRow().Scan(&res.count)
 	if err != nil {
 		return 0, err
 	}
@@ -89,18 +87,23 @@ func (t *DBTx) Commit() error {
 	return t.tx.Commit()
 }
 
+var psql squirrel.StatementBuilderType = squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
+
+var baseTaskSelect squirrel.SelectBuilder = psql.Select(
+	"id", "type", "username", "data",
+	"start_date at time zone (select current_setting('TIMEZONE'))",
+	"end_date at time zone (select current_setting('TIMEZONE'))",
+).From("async_tasks")
+
 // GetBaseTask fetches a task from the database by ID (sans behaviors/statuses)
 func (t *DBTx) GetBaseTask(id string, forUpdate bool) (*model.AsyncTask, error) {
-	query := `SELECT id, type, username, data,
-	                 start_date at time zone (select current_setting('TIMEZONE')) AS start_date,
-			 end_date at time zone (select current_setting('TIMEZONE')) AS end_date
-	            FROM async_tasks WHERE id::text = $1`
+	query := baseTaskSelect.Where("id::text = ?", id)
 
 	if forUpdate {
-		query = query + ` FOR UPDATE`
+		query = query.Suffix(" FOR UPDATE")
 	}
 
-	rows, err := t.tx.Query(query, id)
+	rows, err := query.RunWith(t.tx).Query()
 	if err != nil {
 		return nil, err
 	}
@@ -152,9 +155,9 @@ func makeTask(dbtask model.DBTask) (*model.AsyncTask, error) {
 
 // DeleteTask deletes a task from the database by ID
 func (t *DBTx) DeleteTask(id string) error {
-	query := `DELETE FROM async_tasks WHERE id::text = $1`
+	query := psql.Delete("async_tasks").Where("id::text = ?", id)
 
-	_, err := t.tx.Exec(query, id)
+	_, err := query.RunWith(t.tx).Exec()
 	if err != nil {
 		return err
 	}
@@ -164,9 +167,9 @@ func (t *DBTx) DeleteTask(id string) error {
 
 // CompleteTask marks a task as ended by setting the end date to now()
 func (t *DBTx) CompleteTask(id string) error {
-	query := `UPDATE async_tasks SET end_date = now() WHERE id = $1`
+	query := psql.Update("async_tasks").Set("end_date", squirrel.Expr("now()")).Where("id::text = ?", id)
 
-	rows, err := t.tx.Query(query, id)
+	rows, err := query.RunWith(t.tx).Query()
 	if err != nil {
 		return err
 	}
@@ -202,15 +205,19 @@ func (t *DBTx) GetTask(id string, forUpdate bool) (*model.AsyncTask, error) {
 	return task, err
 }
 
+var baseTaskBehaviorSelect squirrel.SelectBuilder = psql.Select(
+	"behavior_type", "data",
+).From("async_task_behavior")
+
 // GetTaskBehaviors fetches a task's set of behaviors from the DB by ID
 func (t *DBTx) GetTaskBehaviors(id string, forUpdate bool) ([]model.AsyncTaskBehavior, error) {
-	query := `SELECT behavior_type, data FROM async_task_behavior WHERE async_task_id::text = $1`
+	query := baseTaskBehaviorSelect.Where("async_task_id::text = ?", id)
 
 	if forUpdate {
-		query = query + ` FOR UPDATE`
+		query = query.Suffix(" FOR UPDATE")
 	}
 
-	rows, err := t.tx.Query(query, id)
+	rows, err := query.RunWith(t.tx).Query()
 	if err != nil {
 		return nil, err
 	}
@@ -241,16 +248,19 @@ func (t *DBTx) GetTaskBehaviors(id string, forUpdate bool) ([]model.AsyncTaskBeh
 	return behaviors, nil
 }
 
+var baseTaskStatusSelect squirrel.SelectBuilder = psql.Select(
+	"status", "detail", "created_date at time zone (select current_setting('TIMEZONE'))",
+).From("async_task_status")
+
 // GetTaskStatuses fetches a tasks's list of statuses from the DB by ID, ordered by creation date
 func (t *DBTx) GetTaskStatuses(id string, forUpdate bool) ([]model.AsyncTaskStatus, error) {
-	query := `SELECT status, detail, created_date at time zone (select current_setting('TIMEZONE')) AS created_date
-	            FROM async_task_status WHERE async_task_id::text = $1 ORDER BY created_date ASC`
+	query := baseTaskStatusSelect.Where("async_task_id::text = ?", id).OrderBy("created_date ASC")
 
 	if forUpdate {
-		query = query + ` FOR UPDATE`
+		query = query.Suffix(" FOR UPDATE")
 	}
 
-	rows, err := t.tx.Query(query, id)
+	rows, err := query.RunWith(t.tx).Query()
 	if err != nil {
 		return nil, err
 	}
@@ -291,50 +301,33 @@ type TaskFilter struct {
 // GetTasksByFilter fetches a set of tasks by a set of provided filters
 func (t *DBTx) GetTasksByFilter(filters TaskFilter, order string) ([]model.AsyncTask, error) {
 	var tasks []model.AsyncTask
-	var args []interface{}
-	var wheres []string
 
-	query := `SELECT id, type, username, data,
-	                 start_date at time zone (select current_setting('TIMEZONE')) AS start_date,
-			 end_date at time zone (select current_setting('TIMEZONE')) AS end_date
-	            FROM async_tasks`
-
-	currentIndex := 1
+	query := baseTaskSelect
 
 	if len(filters.IDs) > 0 {
-		wheres = append(wheres, fmt.Sprintf(" id::text = ANY($%d)", currentIndex))
-		args = append(args, pq.Array(filters.IDs))
-		currentIndex = currentIndex + 1
+		query = query.Where("id::text = ANY(?)", pq.Array(filters.IDs))
 	}
 
 	if len(filters.Types) > 0 {
-		wheres = append(wheres, fmt.Sprintf(" type = ANY($%d)", currentIndex))
-		args = append(args, pq.Array(filters.Types))
-		currentIndex = currentIndex + 1
+		query = query.Where("type = ANY(?)", pq.Array(filters.Types))
 	}
 
 	if len(filters.Usernames) > 0 {
-		wheres = append(wheres, fmt.Sprintf(" username = ANY($%d)", currentIndex))
-		args = append(args, pq.Array(filters.Usernames))
-		currentIndex = currentIndex + 1
+		query = query.Where("username = ANY(?)", pq.Array(filters.Usernames))
 	}
 
 	if len(filters.StartDateSince) > 0 {
 		if len(filters.StartDateSince) > 1 {
 			t.log.Warn("More than one start_date_since filter is unsupported. Only the oldest date will be considered.")
 		}
-		wheres = append(wheres, fmt.Sprintf(" start_date > ANY($%d)", currentIndex))
-		args = append(args, pq.Array(filters.StartDateSince))
-		currentIndex = currentIndex + 1
+		query = query.Where("start_date > ANY(?)", pq.Array(filters.StartDateSince))
 	}
 
 	if len(filters.StartDateBefore) > 0 {
 		if len(filters.StartDateBefore) > 1 {
 			t.log.Warn("More than one start_date_before filter is unsupported. Only the newest date will be considered.")
 		}
-		wheres = append(wheres, fmt.Sprintf(" start_date < ANY($%d)", currentIndex))
-		args = append(args, pq.Array(filters.StartDateBefore))
-		currentIndex = currentIndex + 1
+		query = query.Where("start_date < ANY(?)", pq.Array(filters.StartDateBefore))
 	}
 
 	if len(filters.EndDateSince) > 0 {
@@ -342,42 +335,30 @@ func (t *DBTx) GetTasksByFilter(filters TaskFilter, order string) ([]model.Async
 			t.log.Warn("More than one end_date_since filter is unsupported. Only the oldest date will be considered.")
 		}
 		if filters.IncludeNullEnd {
-			wheres = append(wheres, fmt.Sprintf(" (end_date > ANY($%d) OR end_date IS NULL)", currentIndex))
+			query = query.Where("(end_date > ANY(?) OR end_date IS NULL)", pq.Array(filters.EndDateSince))
 		} else {
-			wheres = append(wheres, fmt.Sprintf(" end_date > ANY($%d)", currentIndex))
+			query = query.Where("end_date > ANY(?)", pq.Array(filters.EndDateSince))
 		}
-		args = append(args, pq.Array(filters.EndDateSince))
-		currentIndex = currentIndex + 1
 	}
 
 	if len(filters.EndDateBefore) > 0 {
 		if len(filters.EndDateBefore) > 1 {
 			t.log.Warn("More than one end_date_before filter is unsupported. Only the newest date will be considered.")
 		}
-		wheres = append(wheres, fmt.Sprintf(" end_date < ANY($%d)", currentIndex))
-		args = append(args, pq.Array(filters.EndDateBefore))
-		currentIndex = currentIndex + 1
+		query = query.Where("end_date < ANY(?)", pq.Array(filters.EndDateBefore))
 	}
 
 	if len(filters.Statuses) > 0 {
-		query = query + " JOIN async_task_status ON (async_task_status.async_task_id = async_tasks.id AND async_task_status.created_date = (select max(created_date) FROM async_task_status WHERE async_task_id = async_tasks.id))"
-		wheres = append(wheres, fmt.Sprintf(" status = ANY($%d)", currentIndex))
-		args = append(args, pq.Array(filters.Statuses))
-		currentIndex = currentIndex + 1
+		query = query.Join("async_task_status ON (async_task_status.async_task_id = async_tasks.id AND async_task_status.created_date = (select max(created_date) FROM async_task_status WHERE async_task_id = async_tasks.id))").Where("status = ANY(?)", pq.Array(filters.Statuses))
 	}
 
 	if len(filters.BehaviorTypes) > 0 {
-		query = query + " JOIN (SELECT async_task_id, ARRAY_AGG(behavior_type) AS behavior_types FROM async_task_behavior GROUP BY async_task_id) AS behaviors ON (behaviors.async_task_id = async_tasks.id)"
-		wheres = append(wheres, fmt.Sprintf(" behavior_types && $%d", currentIndex))
-		args = append(args, pq.Array(filters.BehaviorTypes))
-		currentIndex = currentIndex + 1
+		nested := psql.Select("async_task_id", "ARRAY_AGG(behavior_type) AS behavior_types").From("async_task_behavior").GroupBy("async_task_id")
+		nestedJoinSelect, _, _ := nested.ToSql()
+		query = query.Join("(" + nestedJoinSelect + ") AS behaviors ON (behaviors.async_task_id = async_tasks.id)").Where(`behavior_types && ?`, pq.Array(filters.BehaviorTypes))
 	}
 
-	if len(wheres) > 0 {
-		query = query + " WHERE " + strings.Join(wheres, " AND ")
-	}
-
-	rows, err := t.tx.Query(query, args...)
+	rows, err := query.RunWith(t.tx).Query()
 	if err != nil {
 		return nil, err
 	}
@@ -406,25 +387,21 @@ func (t *DBTx) GetTasksByFilter(filters TaskFilter, order string) ([]model.Async
 
 // InsertTask inserts a provided AsyncTask into the DB and returns the task's generated ID as a string
 func (t *DBTx) InsertTask(task model.AsyncTask) (string, error) {
-	var columns []string
-	var placeholders []string
-	var args []interface{}
-
-	currentIndex := 1
-
 	if task.Type == "" {
 		return "", errors.New("Task type must be provided")
 	}
+
+	query := psql.Insert("async_tasks").Suffix("RETURNING id::text")
+
+	var columns []string
+	var args []interface{}
+
 	columns = append(columns, "type")
-	placeholders = append(placeholders, fmt.Sprintf("$%d", currentIndex))
 	args = append(args, task.Type)
-	currentIndex = currentIndex + 1
 
 	if task.Username != "" {
 		columns = append(columns, "username")
-		placeholders = append(placeholders, fmt.Sprintf("$%d", currentIndex))
 		args = append(args, task.Username)
-		currentIndex = currentIndex + 1
 	}
 
 	if len(task.Data) > 0 {
@@ -434,31 +411,25 @@ func (t *DBTx) InsertTask(task model.AsyncTask) (string, error) {
 		}
 
 		columns = append(columns, "data")
-		placeholders = append(placeholders, fmt.Sprintf("$%d", currentIndex))
 		args = append(args, jsoned)
-		currentIndex = currentIndex + 1
 	}
 
 	if task.StartDate == nil || task.StartDate.IsZero() {
 		columns = append(columns, "start_date")
-		placeholders = append(placeholders, "now()")
+		args = append(args, squirrel.Expr("now()"))
 	} else {
 		columns = append(columns, "start_date")
-		placeholders = append(placeholders, fmt.Sprintf("$%d AT TIME ZONE (select current_setting('TIMEZONE'))", currentIndex))
-		args = append(args, task.StartDate)
-		currentIndex = currentIndex + 1
+		args = append(args, squirrel.Expr("? AT TIME ZONE (select current_setting('TIMEZONE'))", task.StartDate))
 	}
 
 	if task.EndDate != nil && !task.EndDate.IsZero() {
 		columns = append(columns, "end_date")
-		placeholders = append(placeholders, fmt.Sprintf("$%d AT TIME ZONE (select current_setting('TIMEZONE'))", currentIndex))
-		args = append(args, task.EndDate)
-		currentIndex = currentIndex + 1
+		args = append(args, squirrel.Expr("? AT TIME ZONE (select current_setting('TIMEZONE'))", task.EndDate))
 	}
 
-	query := fmt.Sprintf(`INSERT INTO async_tasks (%s) VALUES (%s) RETURNING id::text`, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
+	query = query.Columns(columns...).Values(args...)
 
-	rows, err := t.tx.Query(query, args...)
+	rows, err := query.RunWith(t.tx).Query()
 	if err != nil {
 		return "", err
 	}
@@ -496,24 +467,19 @@ func (t *DBTx) InsertTask(task model.AsyncTask) (string, error) {
 
 // InsertTaskStatus inserts a provided AsyncTaskStatus into the DB for the provided async task ID
 func (t *DBTx) InsertTaskStatus(status model.AsyncTaskStatus, taskID string) error {
-	var query string
-	var args []interface{}
-
 	if status.Status == "" {
 		return errors.New("Status type must be provided")
 	}
 
-	args = append(args, taskID)
-	args = append(args, status.Status)
-	args = append(args, status.Detail)
+	query := psql.Insert("async_task_status").Columns("async_task_id", "status", "detail", "created_date")
+
 	if status.CreatedDate.IsZero() {
-		query = `INSERT INTO async_task_status (async_task_id, status, detail, created_date) VALUES ($1, $2, $3, now())`
+		query = query.Values(taskID, status.Status, status.Detail, squirrel.Expr("now()"))
 	} else {
-		query = `INSERT INTO async_task_status (async_task_id, status, detail, created_date) VALUES ($1, $2, $3, $4 AT TIME ZONE (select current_setting('TIMEZONE')))`
-		args = append(args, status.CreatedDate)
+		query = query.Values(taskID, status.Status, status.Detail, squirrel.Expr("? AT TIME ZONE (select current_setting('TIMEZONE'))", status.CreatedDate))
 	}
 
-	rows, err := t.tx.Query(query, args...)
+	rows, err := query.RunWith(t.tx).Query()
 	if err != nil {
 		return err
 	}
@@ -529,28 +495,23 @@ func (t *DBTx) InsertTaskStatus(status model.AsyncTaskStatus, taskID string) err
 
 // InsertTaskBehavior inserts a provided AsyncTaskBehavior into the DB for the provided async task ID
 func (t *DBTx) InsertTaskBehavior(behavior model.AsyncTaskBehavior, taskID string) error {
-	var query string
-	var args []interface{}
-
 	if behavior.BehaviorType == "" {
 		return errors.New("Behavior type must be provided")
 	}
 
-	args = append(args, taskID)
-	args = append(args, behavior.BehaviorType)
+	query := psql.Insert("async_task_behavior")
 
 	if len(behavior.Data) > 0 {
-		query = `INSERT INTO async_task_behavior (async_task_id, behavior_type, data) VALUES ($1, $2, $3)`
 		jsoned, err := json.Marshal(behavior.Data)
 		if err != nil {
 			return err
 		}
-		args = append(args, jsoned)
+		query = query.Columns("async_task_id", "behavior_type", "data").Values(taskID, behavior.BehaviorType, jsoned)
 	} else {
-		query = `INSERT INTO async_task_behavior (async_task_id, behavior_type) VALUES ($1, $2)`
+		query = query.Columns("async_task_id", "behavior_type").Values(taskID, behavior.BehaviorType)
 	}
 
-	rows, err := t.tx.Query(query, args...)
+	rows, err := query.RunWith(t.tx).Query()
 	if err != nil {
 		return err
 	}

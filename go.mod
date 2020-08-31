@@ -3,6 +3,7 @@ module github.com/cyverse-de/async-tasks
 go 1.13
 
 require (
+	github.com/Masterminds/squirrel v1.4.0
 	github.com/cyverse-de/configurate v0.0.0-20190318152107-8f767cb828d9
 	github.com/cyverse-de/dbutil v0.0.0-20160615220802-d6ccc51d67cd
 	github.com/fsnotify/fsnotify v1.4.7
