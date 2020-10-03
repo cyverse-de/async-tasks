@@ -15,6 +15,14 @@ import (
 
 const hundredMiB = 104857600
 
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// vaguely like apache common log format
+		log.Infof("%s %s %s %s", r.RemoteAddr, r.Method, r.URL.Path, r.Proto)
+		next.ServeHTTP(w, r)
+	})
+}
+
 type AsyncTasksApp struct {
 	db     *database.DBConnection
 	router *mux.Router
@@ -40,6 +48,8 @@ func (a *AsyncTasksApp) InitRoutes() {
 
 	a.router.HandleFunc("/tasks", a.GetByFilterRequest).Methods("GET").Name("getByFilter")
 	a.router.HandleFunc("/tasks", a.CreateTaskRequest).Methods("POST").Name("createTask")
+
+	a.router.Use(loggingMiddleware)
 }
 
 func (a *AsyncTasksApp) NotFound(writer http.ResponseWriter, r *http.Request) {
