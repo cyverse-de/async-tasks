@@ -41,7 +41,7 @@ spec:
                 path: jobservices.yml
       containers:
       - name: async-tasks
-        image: discoenv/async-tasks
+        image: harbor.cyverse.org/de/async-tasks
         resources:
           requests:
             cpu: "1m"
