@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/cyverse-de/async-tasks/database"
 	"github.com/cyverse-de/async-tasks/model"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"sync"
-	"time"
 )
 
 type BehaviorProcessor func(ctx context.Context, log *logrus.Entry, tickerTime time.Time, db *database.DBConnection) error
@@ -34,7 +35,7 @@ func createBehaviorProcessorTask(ctx context.Context, behaviorType string, db *d
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	task := model.AsyncTask{Type: fmt.Sprintf("behaviorprocessor-%s", behaviorType)}
 
@@ -56,7 +57,7 @@ func checkOldest(ctx context.Context, behaviorType string, db *database.DBConnec
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	filter := database.TaskFilter{
 		Types:          []string{fmt.Sprintf("behaviorprocessor-%s", behaviorType)},
@@ -105,7 +106,7 @@ func finishTask(ctx context.Context, taskID string, db *database.DBConnection, p
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	processorLog.Infof("Completing task %s", taskID)
 	err = tx.CompleteTask(taskID)
@@ -116,12 +117,19 @@ func finishTask(ctx context.Context, taskID string, db *database.DBConnection, p
 	return tx.Commit()
 }
 
+func finishTaskLogError(ctx context.Context, taskID string, db *database.DBConnection, processorLog *logrus.Entry) {
+	err := finishTask(ctx, taskID, db, processorLog)
+	if err != nil {
+		processorLog.Error(err.Error())
+	}
+}
+
 func deleteTask(ctx context.Context, taskID string, db *database.DBConnection, processorLog *logrus.Entry) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	processorLog.Infof("Deleting task %s", taskID)
 	err = tx.DeleteTask(taskID)
@@ -158,7 +166,7 @@ func (u *AsyncTasksUpdater) DoPeriodicUpdate(ctx context.Context, tickerTime tim
 				return
 			}
 			if taskID != "" {
-				defer finishTask(context.Background(), taskID, db, processorLog) // This uses a second context so an already-canceled one will still end the behavior processor async-task
+				defer finishTaskLogError(context.Background(), taskID, db, processorLog) // This uses a second context so an already-canceled one will still end the behavior processor async-task
 			}
 
 			processorLog.Infof("Processing behavior type %s for time %s (task ID %s)", behaviorType, tickerTime, taskID)

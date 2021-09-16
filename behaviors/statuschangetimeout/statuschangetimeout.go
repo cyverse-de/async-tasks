@@ -2,12 +2,13 @@ package statuschangetimeout
 
 import (
 	"context"
+	"time"
+
 	"github.com/cyverse-de/async-tasks/database"
 	"github.com/cyverse-de/async-tasks/model"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"time"
 )
 
 type StatusChangeTimeoutData struct {
@@ -16,6 +17,13 @@ type StatusChangeTimeoutData struct {
 	Timeout     string `mapstructure:"timeout"`
 	Complete    bool   `mapstructure:"complete"`
 	Delete      bool   `mapstructure:"delete"`
+}
+
+func rollbackLogError(tx *database.DBTx, log *logrus.Entry) {
+	err := tx.Rollback()
+	if err != nil {
+		log.Error(err)
+	}
 }
 
 func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBConnection, ID string) error {
@@ -30,7 +38,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollbackLogError(tx, log)
 
 	fullTask, err := tx.GetTask(ID, true)
 	if err != nil {
@@ -114,7 +122,10 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 		}
 	}
 
-	tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		log.Error(errors.Wrap(err, "failed committing transaction"))
+	}
 
 	return nil
 }
@@ -128,14 +139,14 @@ func Processor(ctx context.Context, log *logrus.Entry, _ time.Time, db *database
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollbackLogError(tx, log)
 
 	tasks, err := tx.GetTasksByFilter(filter, "end_date IS NOT NULL DESC")
 	if err != nil {
 		return err
 	}
 
-	tx.Rollback()
+	rollbackLogError(tx, log)
 
 	log.Infof("Tasks with statuschangetimeout behavior: %d", len(tasks))
 

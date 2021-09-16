@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/cyverse-de/async-tasks/database"
-	"github.com/cyverse-de/async-tasks/model"
-	"github.com/gorilla/mux"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
+
+	"github.com/cyverse-de/async-tasks/database"
+	"github.com/cyverse-de/async-tasks/model"
+	"github.com/gorilla/mux"
 )
 
 const hundredMiB = 104857600
@@ -73,7 +74,7 @@ func (a *AsyncTasksApp) GetByIdRequest(writer http.ResponseWriter, r *http.Reque
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	task, err := tx.GetTask(id, false)
 	if err != nil {
@@ -92,9 +93,10 @@ func (a *AsyncTasksApp) GetByIdRequest(writer http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writer.Write(jsoned)
-
-	return
+	_, err = writer.Write(jsoned)
+	if err != nil {
+		log.Error(err.Error())
+	}
 }
 
 func (a *AsyncTasksApp) DeleteByIdRequest(writer http.ResponseWriter, r *http.Request) {
@@ -114,7 +116,7 @@ func (a *AsyncTasksApp) DeleteByIdRequest(writer http.ResponseWriter, r *http.Re
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	task, err := tx.GetTask(id, true)
 	if err != nil {
@@ -133,8 +135,10 @@ func (a *AsyncTasksApp) DeleteByIdRequest(writer http.ResponseWriter, r *http.Re
 		return
 	}
 
-	tx.Commit()
-	return
+	err = tx.Commit()
+	if err != nil {
+		log.Error(err.Error())
+	}
 }
 
 func (a *AsyncTasksApp) GetByFilterRequest(writer http.ResponseWriter, r *http.Request) {
@@ -200,9 +204,13 @@ func (a *AsyncTasksApp) GetByFilterRequest(writer http.ResponseWriter, r *http.R
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	tasks, err := tx.GetTasksByFilter(filters, "")
+	if err != nil {
+		errored(writer, err.Error())
+		return
+	}
 
 	jsoned, err := json.Marshal(tasks)
 	if err != nil {
@@ -210,9 +218,10 @@ func (a *AsyncTasksApp) GetByFilterRequest(writer http.ResponseWriter, r *http.R
 		return
 	}
 
-	writer.Write(jsoned)
-
-	return
+	_, err = writer.Write(jsoned)
+	if err != nil {
+		log.Error(err.Error())
+	}
 }
 
 func (a *AsyncTasksApp) CreateTaskRequest(writer http.ResponseWriter, r *http.Request) {
@@ -259,7 +268,7 @@ func (a *AsyncTasksApp) CreateTaskRequest(writer http.ResponseWriter, r *http.Re
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	id, err := tx.InsertTask(rawtask)
 	if err != nil {
@@ -267,7 +276,10 @@ func (a *AsyncTasksApp) CreateTaskRequest(writer http.ResponseWriter, r *http.Re
 		return
 	}
 
-	tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		log.Error(err.Error())
+	}
 
 	url, _ := a.router.Get("getById").URL("id", id)
 
@@ -294,13 +306,12 @@ func (a *AsyncTasksApp) AddStatusRequest(writer http.ResponseWriter, r *http.Req
 		complete = true
 	}
 
-
 	tx, err := a.db.BeginTx(context.TODO(), nil)
 	if err != nil {
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	task, err := tx.GetTask(id, true)
 	if err != nil {
@@ -342,7 +353,10 @@ func (a *AsyncTasksApp) AddStatusRequest(writer http.ResponseWriter, r *http.Req
 		}
 	}
 
-	tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		log.Error(err.Error())
+	}
 
 	url, _ := a.router.Get("getById").URL("id", id)
 
@@ -368,7 +382,7 @@ func (a *AsyncTasksApp) AddBehaviorRequest(writer http.ResponseWriter, r *http.R
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // nolint:errcheck
 
 	task, err := tx.GetTask(id, true)
 	if err != nil {
@@ -402,7 +416,10 @@ func (a *AsyncTasksApp) AddBehaviorRequest(writer http.ResponseWriter, r *http.R
 		return
 	}
 
-	tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		log.Error(err.Error())
+	}
 
 	url, _ := a.router.Get("getById").URL("id", id)
 

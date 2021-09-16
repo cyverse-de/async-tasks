@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"net/http"
+
+	"github.com/gorilla/mux"
 
 	"github.com/cyverse-de/async-tasks/database"
 
@@ -92,12 +93,12 @@ func main() {
 			log.Infof("Got periodic timer tick: %s", t)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // long timeout we can use to clear out totally stuck jobs
-			defer cancel()
 
 			err := updater.DoPeriodicUpdate(ctx, t, db)
 			if err != nil {
 				log.Error(err)
 			}
+			cancel()
 		}
 	}()
 
