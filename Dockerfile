@@ -1,7 +1,4 @@
-FROM golang:1.13-alpine
-
-RUN apk add --no-cache git
-RUN go get -u github.com/jstemmer/go-junit-report
+FROM golang:1.17
 
 WORKDIR /go/src/github.com/cyverse-de/async-tasks
 COPY . .
