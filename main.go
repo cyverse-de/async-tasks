@@ -36,6 +36,8 @@ var log = logrus.WithFields(logrus.Fields{
 	"group":   "org.cyverse",
 })
 
+var otelName = "github.com/cyverse-de/async-tasks"
+
 func init() {
 	logrus.SetFormatter(&logrus.JSONFormatter{})
 }

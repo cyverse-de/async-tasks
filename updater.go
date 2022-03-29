@@ -10,6 +10,7 @@ import (
 	"github.com/cyverse-de/async-tasks/model"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 )
 
 type BehaviorProcessor func(ctx context.Context, log *logrus.Entry, tickerTime time.Time, db *database.DBConnection) error
@@ -149,6 +150,8 @@ func (u *AsyncTasksUpdater) DoPeriodicUpdate(ctx context.Context, tickerTime tim
 	for behaviorType, processor := range u.behaviorProcessors {
 		wg.Add(1)
 		go func(ctx context.Context, behaviorType string, processor BehaviorProcessor, tickerTime time.Time, db *database.DBConnection, wg *sync.WaitGroup) {
+			ctx, span := otel.Tracer(otelName).Start(context, "behavior processor "+behaviorType)
+			defer span.End()
 			defer wg.Done()
 			processorLog := log.WithFields(logrus.Fields{
 				"behavior_type": behaviorType,
