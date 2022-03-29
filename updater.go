@@ -150,7 +150,7 @@ func (u *AsyncTasksUpdater) DoPeriodicUpdate(ctx context.Context, tickerTime tim
 	for behaviorType, processor := range u.behaviorProcessors {
 		wg.Add(1)
 		go func(ctx context.Context, behaviorType string, processor BehaviorProcessor, tickerTime time.Time, db *database.DBConnection, wg *sync.WaitGroup) {
-			ctx, span := otel.Tracer(otelName).Start(context, "behavior processor "+behaviorType)
+			ctx, span := otel.Tracer(otelName).Start(ctx, "behavior processor "+behaviorType)
 			defer span.End()
 			defer wg.Done()
 			processorLog := log.WithFields(logrus.Fields{
