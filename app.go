@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -59,9 +58,10 @@ func (a *AsyncTasksApp) NotFound(writer http.ResponseWriter, r *http.Request) {
 
 func (a *AsyncTasksApp) GetByIdRequest(writer http.ResponseWriter, r *http.Request) {
 	var (
-		id string
-		ok bool
-		v  = mux.Vars(r)
+		id  string
+		ok  bool
+		v   = mux.Vars(r)
+		ctx = r.Context()
 	)
 
 	if id, ok = v["id"]; !ok {
@@ -69,14 +69,14 @@ func (a *AsyncTasksApp) GetByIdRequest(writer http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	tx, err := a.db.BeginTx(context.TODO(), nil)
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		errored(writer, err.Error())
 		return
 	}
 	defer tx.Rollback() // nolint:errcheck
 
-	task, err := tx.GetTask(id, false)
+	task, err := tx.GetTask(ctx, id, false)
 	if err != nil {
 		errored(writer, err.Error())
 		return
@@ -101,9 +101,10 @@ func (a *AsyncTasksApp) GetByIdRequest(writer http.ResponseWriter, r *http.Reque
 
 func (a *AsyncTasksApp) DeleteByIdRequest(writer http.ResponseWriter, r *http.Request) {
 	var (
-		id string
-		ok bool
-		v  = mux.Vars(r)
+		id  string
+		ok  bool
+		v   = mux.Vars(r)
+		ctx = r.Context()
 	)
 
 	if id, ok = v["id"]; !ok {
@@ -111,14 +112,14 @@ func (a *AsyncTasksApp) DeleteByIdRequest(writer http.ResponseWriter, r *http.Re
 		return
 	}
 
-	tx, err := a.db.BeginTx(context.TODO(), nil)
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		errored(writer, err.Error())
 		return
 	}
 	defer tx.Rollback() // nolint:errcheck
 
-	task, err := tx.GetTask(id, true)
+	task, err := tx.GetTask(ctx, id, true)
 	if err != nil {
 		errored(writer, err.Error())
 		return
@@ -129,7 +130,7 @@ func (a *AsyncTasksApp) DeleteByIdRequest(writer http.ResponseWriter, r *http.Re
 		return
 	}
 
-	err = tx.DeleteTask(id)
+	err = tx.DeleteTask(ctx, id)
 	if err != nil {
 		errored(writer, err.Error())
 		return
@@ -157,6 +158,8 @@ func (a *AsyncTasksApp) GetByFilterRequest(writer http.ResponseWriter, r *http.R
 		end_date_since    = v["end_date_since"]
 		end_date_before   = v["end_date_before"]
 		null_end          = v["include_null_end"]
+
+		ctx = r.Context()
 	)
 
 	if len(null_end) > 0 {
@@ -199,14 +202,14 @@ func (a *AsyncTasksApp) GetByFilterRequest(writer http.ResponseWriter, r *http.R
 		filters.EndDateBefore = append(filters.EndDateBefore, parsed)
 	}
 
-	tx, err := a.db.BeginTx(context.TODO(), nil)
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		errored(writer, err.Error())
 		return
 	}
 	defer tx.Rollback() // nolint:errcheck
 
-	tasks, err := tx.GetTasksByFilter(filters, "")
+	tasks, err := tx.GetTasksByFilter(ctx, filters, "")
 	if err != nil {
 		errored(writer, err.Error())
 		return
@@ -226,6 +229,7 @@ func (a *AsyncTasksApp) GetByFilterRequest(writer http.ResponseWriter, r *http.R
 
 func (a *AsyncTasksApp) CreateTaskRequest(writer http.ResponseWriter, r *http.Request) {
 	var rawtask model.AsyncTask
+	ctx := r.Context()
 
 	body, err := ioutil.ReadAll(io.LimitReader(r.Body, hundredMiB))
 	if err != nil {
@@ -263,14 +267,14 @@ func (a *AsyncTasksApp) CreateTaskRequest(writer http.ResponseWriter, r *http.Re
 		return
 	}
 
-	tx, err := a.db.BeginTx(context.TODO(), nil)
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		errored(writer, err.Error())
 		return
 	}
 	defer tx.Rollback() // nolint:errcheck
 
-	id, err := tx.InsertTask(rawtask)
+	id, err := tx.InsertTask(ctx, rawtask)
 	if err != nil {
 		errored(writer, err.Error())
 		return
@@ -295,6 +299,7 @@ func (a *AsyncTasksApp) AddStatusRequest(writer http.ResponseWriter, r *http.Req
 		rawstatus model.AsyncTaskStatus
 		v         = mux.Vars(r)
 		q         = r.URL.Query()
+		ctx       = r.Context()
 	)
 
 	if id, ok = v["id"]; !ok {
@@ -306,14 +311,14 @@ func (a *AsyncTasksApp) AddStatusRequest(writer http.ResponseWriter, r *http.Req
 		complete = true
 	}
 
-	tx, err := a.db.BeginTx(context.TODO(), nil)
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		errored(writer, err.Error())
 		return
 	}
 	defer tx.Rollback() // nolint:errcheck
 
-	task, err := tx.GetTask(id, true)
+	task, err := tx.GetTask(ctx, id, true)
 	if err != nil {
 		errored(writer, err.Error())
 		return
@@ -339,14 +344,14 @@ func (a *AsyncTasksApp) AddStatusRequest(writer http.ResponseWriter, r *http.Req
 		return
 	}
 
-	err = tx.InsertTaskStatus(rawstatus, id)
+	err = tx.InsertTaskStatus(ctx, rawstatus, id)
 	if err != nil {
 		errored(writer, err.Error())
 		return
 	}
 
 	if complete {
-		err = tx.CompleteTask(id)
+		err = tx.CompleteTask(ctx, id)
 		if err != nil {
 			errored(writer, err.Error())
 			return
@@ -370,6 +375,7 @@ func (a *AsyncTasksApp) AddBehaviorRequest(writer http.ResponseWriter, r *http.R
 		ok          bool
 		rawbehavior model.AsyncTaskBehavior
 		v           = mux.Vars(r)
+		ctx         = r.Context()
 	)
 
 	if id, ok = v["id"]; !ok {
@@ -377,14 +383,14 @@ func (a *AsyncTasksApp) AddBehaviorRequest(writer http.ResponseWriter, r *http.R
 		return
 	}
 
-	tx, err := a.db.BeginTx(context.TODO(), nil)
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		errored(writer, err.Error())
 		return
 	}
 	defer tx.Rollback() // nolint:errcheck
 
-	task, err := tx.GetTask(id, true)
+	task, err := tx.GetTask(ctx, id, true)
 	if err != nil {
 		errored(writer, err.Error())
 		return
@@ -410,7 +416,7 @@ func (a *AsyncTasksApp) AddBehaviorRequest(writer http.ResponseWriter, r *http.R
 		return
 	}
 
-	err = tx.InsertTaskBehavior(rawbehavior, id)
+	err = tx.InsertTaskBehavior(ctx, rawbehavior, id)
 	if err != nil {
 		errored(writer, err.Error())
 		return

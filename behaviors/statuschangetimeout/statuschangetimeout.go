@@ -40,7 +40,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 	}
 	defer rollbackLogError(tx, log)
 
-	fullTask, err := tx.GetTask(ID, true)
+	fullTask, err := tx.GetTask(ctx, ID, true)
 	if err != nil {
 		err = errors.Wrap(err, "failed getting task")
 		log.Error(err)
@@ -89,7 +89,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 
 				if comparisonTimestamp.Add(timeout).Before(time.Now()) && comparisonStatus == taskData.StartStatus {
 					newstatus := model.AsyncTaskStatus{Status: taskData.EndStatus}
-					err = tx.InsertTaskStatus(newstatus, ID)
+					err = tx.InsertTaskStatus(ctx, newstatus, ID)
 					if err != nil {
 						// do die here, because the transaction is probably dead
 						err = errors.Wrap(err, "failed inserting task status")
@@ -97,7 +97,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 						return err
 					}
 					if taskData.Complete {
-						err = tx.CompleteTask(ID)
+						err = tx.CompleteTask(ctx, ID)
 						if err != nil {
 							// do die here, because the transaction is probably dead
 							err = errors.Wrap(err, "failed setting task complete")
@@ -106,7 +106,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 						}
 					}
 					if taskData.Delete {
-						err = tx.DeleteTask(ID)
+						err = tx.DeleteTask(ctx, ID)
 						if err != nil {
 							// do die here, because the transaction is probably dead
 							err = errors.Wrap(err, "failed deleting task")
@@ -141,7 +141,7 @@ func Processor(ctx context.Context, log *logrus.Entry, _ time.Time, db *database
 	}
 	defer rollbackLogError(tx, log)
 
-	tasks, err := tx.GetTasksByFilter(filter, "end_date IS NOT NULL DESC")
+	tasks, err := tx.GetTasksByFilter(ctx, filter, "end_date IS NOT NULL DESC")
 	if err != nil {
 		return err
 	}

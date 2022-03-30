@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type BehaviorProcessor func(ctx context.Context, log *logrus.Entry, tickerTime time.Time, db *database.DBConnection) error
@@ -40,7 +41,7 @@ func createBehaviorProcessorTask(ctx context.Context, behaviorType string, db *d
 
 	task := model.AsyncTask{Type: fmt.Sprintf("behaviorprocessor-%s", behaviorType)}
 
-	id, err := tx.InsertTask(task)
+	id, err := tx.InsertTask(ctx, task)
 	if err != nil {
 		return "", err
 	}
@@ -67,7 +68,7 @@ func checkOldest(ctx context.Context, behaviorType string, db *database.DBConnec
 		IncludeNullEnd: true,
 	}
 
-	tasks, err := tx.GetTasksByFilter(filter, "start_date ASC")
+	tasks, err := tx.GetTasksByFilter(ctx, filter, "start_date ASC")
 	if err != nil {
 		return err
 	}
@@ -110,7 +111,7 @@ func finishTask(ctx context.Context, taskID string, db *database.DBConnection, p
 	defer tx.Rollback() // nolint:errcheck
 
 	processorLog.Infof("Completing task %s", taskID)
-	err = tx.CompleteTask(taskID)
+	err = tx.CompleteTask(ctx, taskID)
 	if err != nil {
 		return err
 	}
@@ -133,7 +134,7 @@ func deleteTask(ctx context.Context, taskID string, db *database.DBConnection, p
 	defer tx.Rollback() // nolint:errcheck
 
 	processorLog.Infof("Deleting task %s", taskID)
-	err = tx.DeleteTask(taskID)
+	err = tx.DeleteTask(ctx, taskID)
 	if err != nil {
 		return err
 	}
@@ -169,7 +170,9 @@ func (u *AsyncTasksUpdater) DoPeriodicUpdate(ctx context.Context, tickerTime tim
 				return
 			}
 			if taskID != "" {
-				defer finishTaskLogError(context.Background(), taskID, db, processorLog) // This uses a second context so an already-canceled one will still end the behavior processor async-task
+				separatedSpanContext := trace.SpanContextFromContext(ctx)
+				outerCtx := trace.ContextWithSpanContext(context.Background(), separatedSpanContext)
+				defer finishTaskLogError(outerCtx, taskID, db, processorLog) // This uses a second context so an already-canceled one will still end the behavior processor async-task
 			}
 
 			processorLog.Infof("Processing behavior type %s for time %s (task ID %s)", behaviorType, tickerTime, taskID)

@@ -135,7 +135,7 @@ func main() {
 	}
 	defer db.Close()
 
-	count, err := db.GetCount()
+	count, err := db.GetCount(context.Background())
 	if err != nil {
 		log.Fatal(err.Error())
 	}
