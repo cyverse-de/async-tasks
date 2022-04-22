@@ -97,8 +97,8 @@ var baseTaskSelect squirrel.SelectBuilder = psql.Select(
 	"end_date at time zone (select current_setting('TIMEZONE'))",
 ).From("async_tasks")
 
-// GetBaseTask fetches a task from the database by ID (sans behaviors/statuses)
-func (t *DBTx) GetBaseTask(ctx context.Context, id string, forUpdate bool) (*model.AsyncTask, error) {
+// getBaseTask fetches a task from the database by ID (sans behaviors/statuses)
+func (t *DBTx) getBaseTask(ctx context.Context, id string, forUpdate bool) (*model.AsyncTask, error) {
 	query := baseTaskSelect.Where("id::text = ?", id)
 
 	if forUpdate {
@@ -187,22 +187,24 @@ func (t *DBTx) CompleteTask(ctx context.Context, id string) error {
 
 // GetTask fetches a task from the database by ID, including behaviors and statuses
 func (t *DBTx) GetTask(ctx context.Context, id string, forUpdate bool) (*model.AsyncTask, error) {
-	task, err := t.GetBaseTask(ctx, id, forUpdate)
+	task, err := t.getBaseTask(ctx, id, forUpdate)
 	if err != nil {
 		return task, err
 	}
 
-	behaviors, err := t.GetTaskBehaviors(ctx, id, forUpdate)
+	behaviors, err := t.getTaskBehaviors(ctx, id, forUpdate)
 	if err != nil {
 		return task, err
 	}
 	task.Behaviors = behaviors
+	task.BehaviorsLoaded = true
 
-	statuses, err := t.GetTaskStatuses(ctx, id, forUpdate)
+	statuses, err := t.getTaskStatuses(ctx, id, forUpdate)
 	if err != nil {
 		return task, err
 	}
 	task.Statuses = statuses
+	task.StatusesLoaded = true
 
 	return task, err
 }
@@ -211,8 +213,8 @@ var baseTaskBehaviorSelect squirrel.SelectBuilder = psql.Select(
 	"behavior_type", "data",
 ).From("async_task_behavior")
 
-// GetTaskBehaviors fetches a task's set of behaviors from the DB by ID
-func (t *DBTx) GetTaskBehaviors(ctx context.Context, id string, forUpdate bool) ([]model.AsyncTaskBehavior, error) {
+// getTaskBehaviors fetches a task's set of behaviors from the DB by ID
+func (t *DBTx) getTaskBehaviors(ctx context.Context, id string, forUpdate bool) ([]model.AsyncTaskBehavior, error) {
 	query := baseTaskBehaviorSelect.Where("async_task_id::text = ?", id)
 
 	if forUpdate {
@@ -254,8 +256,8 @@ var baseTaskStatusSelect squirrel.SelectBuilder = psql.Select(
 	"status", "detail", "created_date at time zone (select current_setting('TIMEZONE'))",
 ).From("async_task_status")
 
-// GetTaskStatuses fetches a tasks's list of statuses from the DB by ID, ordered by creation date
-func (t *DBTx) GetTaskStatuses(ctx context.Context, id string, forUpdate bool) ([]model.AsyncTaskStatus, error) {
+// getTaskStatuses fetches a tasks's list of statuses from the DB by ID, ordered by creation date
+func (t *DBTx) getTaskStatuses(ctx context.Context, id string, forUpdate bool) ([]model.AsyncTaskStatus, error) {
 	query := baseTaskStatusSelect.Where("async_task_id::text = ?", id).OrderBy("created_date ASC")
 
 	if forUpdate {

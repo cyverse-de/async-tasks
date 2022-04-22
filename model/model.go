@@ -2,8 +2,9 @@ package model
 
 import (
 	"database/sql"
-	"github.com/lib/pq"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // AsyncTaskBehavior describes a single behavior from the database
@@ -21,14 +22,16 @@ type AsyncTaskStatus struct {
 
 // AsyncTask describes an async task from the DB, including behaviors and statuses if available
 type AsyncTask struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Username  string                 `json:"username"`
-	Data      map[string]interface{} `json:"data"`
-	StartDate *time.Time             `json:"start_date"`
-	EndDate   *time.Time             `json:"end_date"`
-	Behaviors []AsyncTaskBehavior    `json:"behaviors,omitempty"`
-	Statuses  []AsyncTaskStatus      `json:"statuses,omitempty"`
+	ID              string                 `json:"id"`
+	Type            string                 `json:"type"`
+	Username        string                 `json:"username"`
+	Data            map[string]interface{} `json:"data"`
+	StartDate       *time.Time             `json:"start_date"`
+	EndDate         *time.Time             `json:"end_date"`
+	Behaviors       []AsyncTaskBehavior    `json:"behaviors,omitempty"`
+	BehaviorsLoaded bool                   `json:"-"`
+	Statuses        []AsyncTaskStatus      `json:"statuses,omitempty"`
+	StatusesLoaded  bool                   `json:"-"`
 }
 
 // DBTaskBehavior is a special type for selecting from the DB
