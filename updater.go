@@ -144,6 +144,8 @@ func deleteTask(ctx context.Context, taskID string, db *database.DBConnection, p
 
 func (u *AsyncTasksUpdater) DoPeriodicUpdate(ctx context.Context, tickerTime time.Time, db *database.DBConnection) error {
 	log.Infof("Running update with time %s", tickerTime)
+	ctx, span := otel.Tracer(otelName).Start(ctx, "DoPeriodicUpdate")
+	defer span.End()
 
 	var wg sync.WaitGroup
 
