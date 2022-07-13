@@ -172,6 +172,9 @@ func (u *AsyncTasksUpdater) DoPeriodicUpdate(ctx context.Context, tickerTime tim
 				return
 			}
 			if taskID != "" {
+				processorLog = log.WithFields(logrus.Fields{
+					"async_task_id": taskID,
+				})
 				separatedSpanContext := trace.SpanContextFromContext(ctx)
 				outerCtx := trace.ContextWithSpanContext(context.Background(), separatedSpanContext)
 				defer finishTaskLogError(outerCtx, taskID, db, processorLog) // This uses a second context so an already-canceled one will still end the behavior processor async-task
