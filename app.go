@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -231,7 +230,7 @@ func (a *AsyncTasksApp) CreateTaskRequest(writer http.ResponseWriter, r *http.Re
 	var rawtask model.AsyncTask
 	ctx := r.Context()
 
-	body, err := ioutil.ReadAll(io.LimitReader(r.Body, hundredMiB))
+	body, err := io.ReadAll(io.LimitReader(r.Body, hundredMiB))
 	if err != nil {
 		errored(writer, err.Error())
 		return
@@ -329,7 +328,7 @@ func (a *AsyncTasksApp) AddStatusRequest(writer http.ResponseWriter, r *http.Req
 		return
 	}
 
-	body, err := ioutil.ReadAll(io.LimitReader(r.Body, hundredMiB))
+	body, err := io.ReadAll(io.LimitReader(r.Body, hundredMiB))
 
 	if err != nil {
 		errored(writer, err.Error())
@@ -401,7 +400,7 @@ func (a *AsyncTasksApp) AddBehaviorRequest(writer http.ResponseWriter, r *http.R
 		return
 	}
 
-	body, err := ioutil.ReadAll(io.LimitReader(r.Body, hundredMiB))
+	body, err := io.ReadAll(io.LimitReader(r.Body, hundredMiB))
 
 	if err != nil {
 		errored(writer, err.Error())
