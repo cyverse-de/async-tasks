@@ -3,8 +3,6 @@ package model
 import (
 	"database/sql"
 	"time"
-
-	"github.com/lib/pq"
 )
 
 // AsyncTaskBehavior describes a single behavior from the database
@@ -53,6 +51,6 @@ type DBTask struct {
 	Type      string
 	Username  sql.NullString
 	Data      sql.NullString
-	StartDate pq.NullTime
-	EndDate   pq.NullTime
+	StartDate sql.NullTime
+	EndDate   sql.NullTime
 }

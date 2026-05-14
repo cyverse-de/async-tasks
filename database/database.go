@@ -6,6 +6,7 @@ import (
 	"database/sql"
 
 	"github.com/Masterminds/squirrel"
+	"github.com/cyverse-de/async-tasks/internal/logutil"
 	"github.com/cyverse-de/async-tasks/model"
 	"github.com/cyverse-de/dbutil"
 	"github.com/lib/pq"
@@ -109,7 +110,7 @@ func (t *DBTx) getBaseTask(ctx context.Context, id string, forUpdate bool) (*mod
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer logutil.LogIfError(t.log, rows.Close)
 
 	var dbtask model.DBTask
 	for rows.Next() {
@@ -225,7 +226,7 @@ func (t *DBTx) getTaskBehaviors(ctx context.Context, id string, forUpdate bool) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer logutil.LogIfError(t.log, rows.Close)
 
 	var behaviors []model.AsyncTaskBehavior
 	for rows.Next() {
@@ -268,7 +269,7 @@ func (t *DBTx) getTaskStatuses(ctx context.Context, id string, forUpdate bool) (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer logutil.LogIfError(t.log, rows.Close)
 
 	var statuses []model.AsyncTaskStatus
 	for rows.Next() {
@@ -366,7 +367,7 @@ func (t *DBTx) GetTasksByFilter(ctx context.Context, filters TaskFilter, order s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer logutil.LogIfError(t.log, rows.Close)
 
 	for rows.Next() {
 		var dbtask model.DBTask
@@ -392,7 +393,7 @@ func (t *DBTx) GetTasksByFilter(ctx context.Context, filters TaskFilter, order s
 // InsertTask inserts a provided AsyncTask into the DB and returns the task's generated ID as a string
 func (t *DBTx) InsertTask(ctx context.Context, task model.AsyncTask) (string, error) {
 	if task.Type == "" {
-		return "", errors.New("Task type must be provided")
+		return "", errors.New("task type must be provided")
 	}
 
 	query := psql.Insert("async_tasks").Suffix("RETURNING id::text")
@@ -437,7 +438,7 @@ func (t *DBTx) InsertTask(ctx context.Context, task model.AsyncTask) (string, er
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer logutil.LogIfError(t.log, rows.Close)
 
 	var id string
 	for rows.Next() {
@@ -472,7 +473,7 @@ func (t *DBTx) InsertTask(ctx context.Context, task model.AsyncTask) (string, er
 // InsertTaskStatus inserts a provided AsyncTaskStatus into the DB for the provided async task ID
 func (t *DBTx) InsertTaskStatus(ctx context.Context, status model.AsyncTaskStatus, taskID string) error {
 	if status.Status == "" {
-		return errors.New("Status type must be provided")
+		return errors.New("status type must be provided")
 	}
 
 	query := psql.Insert("async_task_status").Columns("async_task_id", "status", "detail", "created_date")
@@ -500,7 +501,7 @@ func (t *DBTx) InsertTaskStatus(ctx context.Context, status model.AsyncTaskStatu
 // InsertTaskBehavior inserts a provided AsyncTaskBehavior into the DB for the provided async task ID
 func (t *DBTx) InsertTaskBehavior(ctx context.Context, behavior model.AsyncTaskBehavior, taskID string) error {
 	if behavior.BehaviorType == "" {
-		return errors.New("Behavior type must be provided")
+		return errors.New("behavior type must be provided")
 	}
 
 	query := psql.Insert("async_task_behavior")

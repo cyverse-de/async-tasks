@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/cyverse-de/async-tasks/database"
+	"github.com/cyverse-de/async-tasks/internal/logutil"
 	"github.com/cyverse-de/go-mod/otelutils"
 
 	"github.com/cyverse-de/async-tasks/behaviors/statuschangetimeout"
@@ -42,7 +43,9 @@ func makeRouter() *mux.Router {
 	router.Use(otelmux.Middleware("async-tasks"))
 	router.Handle("/debug/vars", http.DefaultServeMux)
 	router.HandleFunc("/", func(writer http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(writer, "Hello from async-tasks.\n")
+		if _, err := fmt.Fprintf(writer, "Hello from async-tasks.\n"); err != nil {
+			log.Error(err)
+		}
 	}).Methods("GET")
 
 	return router
@@ -84,7 +87,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	defer db.Close()
+	defer logutil.LogIfError(log, db.Close)
 
 	count, err := db.GetCount(context.Background())
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cyverse-de/async-tasks/database"
+	"github.com/cyverse-de/async-tasks/internal/logutil"
 	"github.com/cyverse-de/async-tasks/model"
 	"github.com/gorilla/mux"
 )
@@ -73,7 +74,7 @@ func (a *AsyncTasksApp) GetByIdRequest(writer http.ResponseWriter, r *http.Reque
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(log, tx.Rollback)
 
 	task, err := tx.GetTask(ctx, id, false)
 	if err != nil {
@@ -116,7 +117,7 @@ func (a *AsyncTasksApp) DeleteByIdRequest(writer http.ResponseWriter, r *http.Re
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(log, tx.Rollback)
 
 	task, err := tx.GetTask(ctx, id, true)
 	if err != nil {
@@ -206,7 +207,7 @@ func (a *AsyncTasksApp) GetByFilterRequest(writer http.ResponseWriter, r *http.R
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(log, tx.Rollback)
 
 	tasks, err := tx.GetTasksByFilter(ctx, filters, "")
 	if err != nil {
@@ -271,7 +272,7 @@ func (a *AsyncTasksApp) CreateTaskRequest(writer http.ResponseWriter, r *http.Re
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(log, tx.Rollback)
 
 	id, err := tx.InsertTask(ctx, rawtask)
 	if err != nil {
@@ -315,7 +316,7 @@ func (a *AsyncTasksApp) AddStatusRequest(writer http.ResponseWriter, r *http.Req
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(log, tx.Rollback)
 
 	task, err := tx.GetTask(ctx, id, true)
 	if err != nil {
@@ -387,7 +388,7 @@ func (a *AsyncTasksApp) AddBehaviorRequest(writer http.ResponseWriter, r *http.R
 		errored(writer, err.Error())
 		return
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(log, tx.Rollback)
 
 	task, err := tx.GetTask(ctx, id, true)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cyverse-de/async-tasks/database"
+	"github.com/cyverse-de/async-tasks/internal/logutil"
 	"github.com/cyverse-de/async-tasks/model"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -37,7 +38,7 @@ func createBehaviorProcessorTask(ctx context.Context, behaviorType string, db *d
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(log, tx.Rollback)
 
 	task := model.AsyncTask{Type: fmt.Sprintf("behaviorprocessor-%s", behaviorType)}
 
@@ -59,7 +60,7 @@ func checkOldest(ctx context.Context, behaviorType string, db *database.DBConnec
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(log, tx.Rollback)
 
 	filter := database.TaskFilter{
 		Types:          []string{fmt.Sprintf("behaviorprocessor-%s", behaviorType)},
@@ -108,7 +109,7 @@ func finishTask(ctx context.Context, taskID string, db *database.DBConnection, p
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(processorLog, tx.Rollback)
 
 	processorLog.Infof("Completing task %s", taskID)
 	err = tx.CompleteTask(ctx, taskID)
@@ -131,7 +132,7 @@ func deleteTask(ctx context.Context, taskID string, db *database.DBConnection, p
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() // nolint:errcheck
+	defer logutil.LogIfError(processorLog, tx.Rollback)
 
 	processorLog.Infof("Deleting task %s", taskID)
 	err = tx.DeleteTask(ctx, taskID)
