@@ -2,6 +2,7 @@ package statuschangetimeout
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/cyverse-de/async-tasks/database"
@@ -32,7 +33,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 	if err != nil {
 		return err
 	}
-	defer logutil.LogIfError(log, tx.Rollback)
+	defer logutil.LogIfError(log, tx.Rollback, sql.ErrTxDone)
 
 	fullTask, err := tx.GetTask(ctx, ID, true)
 	if err != nil {
@@ -133,14 +134,14 @@ func Processor(ctx context.Context, log *logrus.Entry, _ time.Time, db *database
 	if err != nil {
 		return err
 	}
-	defer logutil.LogIfError(log, tx.Rollback)
+	defer logutil.LogIfError(log, tx.Rollback, sql.ErrTxDone)
 
 	tasks, err := tx.GetTasksByFilter(ctx, filter, "end_date IS NOT NULL DESC")
 	if err != nil {
 		return err
 	}
 
-	logutil.LogIfError(log, tx.Rollback)
+	logutil.LogIfError(log, tx.Rollback, sql.ErrTxDone)
 
 	log.Infof("Tasks with statuschangetimeout behavior: %d", len(tasks))
 
