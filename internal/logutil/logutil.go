@@ -3,7 +3,17 @@
 // propagate.
 package logutil
 
-import "github.com/sirupsen/logrus"
+import (
+	"database/sql"
+
+	"github.com/sirupsen/logrus"
+)
+
+// Errors that we really want to ignore because they can occur as a result of
+// normal operation.
+var errorsToIgnore = map[error]bool{
+	sql.ErrTxDone: true,
+}
 
 // LogIfError invokes fn and logs its returned error, if any. It is intended
 // to be used with `defer` for cleanup calls such as (*sql.Rows).Close,
@@ -11,6 +21,8 @@ import "github.com/sirupsen/logrus"
 // at the caller but is still worth surfacing in logs.
 func LogIfError(log *logrus.Entry, fn func() error) {
 	if err := fn(); err != nil {
-		log.Error(err)
+		if !errorsToIgnore[err] {
+			log.Error(err)
+		}
 	}
 }
