@@ -2,9 +2,11 @@ package statuschangetimeout
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/cyverse-de/async-tasks/database"
+	"github.com/cyverse-de/async-tasks/internal/logutil"
 	"github.com/cyverse-de/async-tasks/model"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
@@ -19,13 +21,6 @@ type StatusChangeTimeoutData struct {
 	Delete      bool   `mapstructure:"delete"`
 }
 
-func rollbackLogError(tx *database.DBTx, log *logrus.Entry) {
-	err := tx.Rollback()
-	if err != nil {
-		log.Error(err)
-	}
-}
-
 func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBConnection, ID string) error {
 	select {
 	// If the context is cancelled, don't bother
@@ -38,7 +33,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 	if err != nil {
 		return err
 	}
-	defer rollbackLogError(tx, log)
+	defer logutil.LogIfError(log, tx.Rollback, sql.ErrTxDone)
 
 	fullTask, err := tx.GetTask(ctx, ID, true)
 	if err != nil {
@@ -65,7 +60,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 	for _, behavior := range fullTask.Behaviors {
 		// only one of each type because of the DB FK
 		if behavior.BehaviorType == "statuschangetimeout" {
-			data, ok := behavior.Data["statuses"].([]interface{})
+			data, ok := behavior.Data["statuses"].([]any)
 			if !ok {
 				err = errors.New("Behavior data is not an array")
 				log.Error(err)
@@ -139,14 +134,14 @@ func Processor(ctx context.Context, log *logrus.Entry, _ time.Time, db *database
 	if err != nil {
 		return err
 	}
-	defer rollbackLogError(tx, log)
+	defer logutil.LogIfError(log, tx.Rollback, sql.ErrTxDone)
 
 	tasks, err := tx.GetTasksByFilter(ctx, filter, "end_date IS NOT NULL DESC")
 	if err != nil {
 		return err
 	}
 
-	rollbackLogError(tx, log)
+	logutil.LogIfError(log, tx.Rollback, sql.ErrTxDone)
 
 	log.Infof("Tasks with statuschangetimeout behavior: %d", len(tasks))
 

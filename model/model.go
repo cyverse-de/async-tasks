@@ -3,14 +3,12 @@ package model
 import (
 	"database/sql"
 	"time"
-
-	"github.com/lib/pq"
 )
 
 // AsyncTaskBehavior describes a single behavior from the database
 type AsyncTaskBehavior struct {
 	BehaviorType string                 `json:"type"`
-	Data         map[string]interface{} `json:"data"`
+	Data         map[string]any `json:"data"`
 }
 
 // AsyncTaskStatus describes a single status update from the database
@@ -25,7 +23,7 @@ type AsyncTask struct {
 	ID              string                 `json:"id"`
 	Type            string                 `json:"type"`
 	Username        string                 `json:"username"`
-	Data            map[string]interface{} `json:"data"`
+	Data            map[string]any `json:"data"`
 	StartDate       *time.Time             `json:"start_date"`
 	EndDate         *time.Time             `json:"end_date"`
 	Behaviors       []AsyncTaskBehavior    `json:"behaviors,omitempty"`
@@ -53,6 +51,6 @@ type DBTask struct {
 	Type      string
 	Username  sql.NullString
 	Data      sql.NullString
-	StartDate pq.NullTime
-	EndDate   pq.NullTime
+	StartDate sql.NullTime
+	EndDate   sql.NullTime
 }

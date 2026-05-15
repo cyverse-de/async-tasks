@@ -1,9 +1,20 @@
-FROM golang:1.21
+FROM golang:1.26 AS builder
 
-WORKDIR /go/src/github.com/cyverse-de/async-tasks
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
 COPY . .
+
 ENV CGO_ENABLED=0
-RUN go install
+
+RUN go build -o async-tasks .
+
+
+FROM gcr.io/distroless/static-debian13:nonroot
+
+COPY --from=builder /build/async-tasks /bin/async-tasks
 
 ENTRYPOINT ["async-tasks"]
 CMD ["--help"]
