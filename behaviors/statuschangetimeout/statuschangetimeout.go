@@ -60,7 +60,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 	for _, behavior := range fullTask.Behaviors {
 		// only one of each type because of the DB FK
 		if behavior.BehaviorType == "statuschangetimeout" {
-			data, ok := behavior.Data["statuses"].([]interface{})
+			data, ok := behavior.Data["statuses"].([]any)
 			if !ok {
 				err = errors.New("Behavior data is not an array")
 				log.Error(err)

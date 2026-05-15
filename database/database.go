@@ -135,7 +135,7 @@ func makeTask(dbtask model.DBTask) (*model.AsyncTask, error) {
 	}
 
 	if dbtask.Data.Valid {
-		jsonData := make(map[string]interface{})
+		jsonData := make(map[string]any)
 
 		err = json.Unmarshal([]byte(dbtask.Data.String), &jsonData)
 		if err != nil {
@@ -237,7 +237,7 @@ func (t *DBTx) getTaskBehaviors(ctx context.Context, id string, forUpdate bool) 
 
 		behavior := model.AsyncTaskBehavior{BehaviorType: dbbehavior.BehaviorType}
 		if dbbehavior.Data.Valid {
-			jsonData := make(map[string]interface{})
+			jsonData := make(map[string]any)
 
 			err = json.Unmarshal([]byte(dbbehavior.Data.String), &jsonData)
 			if err != nil {
@@ -399,7 +399,7 @@ func (t *DBTx) InsertTask(ctx context.Context, task model.AsyncTask) (string, er
 	query := psql.Insert("async_tasks").Suffix("RETURNING id::text")
 
 	var columns []string
-	var args []interface{}
+	var args []any
 
 	columns = append(columns, "type")
 	args = append(args, task.Type)
