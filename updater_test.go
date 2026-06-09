@@ -18,14 +18,11 @@ func TestNewAsyncTasksUpdater(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	updater := NewAsyncTasksUpdater(conn)
 
-	if updater == nil {
-		t.Fatal("NewAsyncTasksUpdater returned nil")
-	}
 	if updater.db != conn {
 		t.Error("Updater db doesn't match provided connection")
 	}
@@ -44,7 +41,7 @@ func TestAddBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	updater := NewAsyncTasksUpdater(conn)
@@ -78,7 +75,7 @@ func TestAddBehavior_OverwriteExisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	updater := NewAsyncTasksUpdater(conn)
@@ -115,7 +112,7 @@ func TestCreateBehaviorProcessorTask_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 
@@ -143,7 +140,7 @@ func TestCreateBehaviorProcessorTask_TaskTypeFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 
@@ -164,7 +161,7 @@ func TestCreateBehaviorProcessorTask_BeginTxError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 
@@ -181,7 +178,7 @@ func TestCreateBehaviorProcessorTask_CommitError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 
@@ -203,7 +200,7 @@ func TestCheckOldest_IsOldest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	myID := "my-task-id"
@@ -227,7 +224,7 @@ func TestCheckOldest_NotOldest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	myID := "my-task-id"
@@ -256,7 +253,7 @@ func TestCheckOldest_NoTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 
@@ -279,7 +276,7 @@ func TestCheckOldest_OrderApplied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	myID := "my-task-id"
@@ -308,7 +305,7 @@ func TestCheckOldest_BreakOptimizationCorrect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	myID := "my-task-id"
@@ -342,7 +339,7 @@ func TestCheckAlone_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	taskID := "alone-task-id"
@@ -374,7 +371,7 @@ func TestCheckAlone_NotAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	myTaskID := "my-task-id"
@@ -411,7 +408,7 @@ func TestFinishTask_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	processorLog := logrus.WithField("test", true)
@@ -436,7 +433,7 @@ func TestFinishTask_CommitError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	processorLog := logrus.WithField("test", true)
@@ -459,7 +456,7 @@ func TestDeleteTask_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	processorLog := logrus.WithField("test", true)
@@ -481,7 +478,7 @@ func TestDoPeriodicUpdate_NoBehaviors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	updater := NewAsyncTasksUpdater(conn)
@@ -498,7 +495,7 @@ func TestDoPeriodicUpdate_ProcessorCalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	updater := NewAsyncTasksUpdater(conn)
@@ -551,7 +548,7 @@ func TestDoPeriodicUpdate_ProcessorError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	updater := NewAsyncTasksUpdater(conn)
@@ -592,7 +589,7 @@ func TestDoPeriodicUpdate_NotAlone_DeletesTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	updater := NewAsyncTasksUpdater(conn)
@@ -652,7 +649,7 @@ func TestDoPeriodicUpdate_ProcessorLogLosesBehaviorType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	conn := database.NewTestDBConnection(db)
 	updater := NewAsyncTasksUpdater(conn)

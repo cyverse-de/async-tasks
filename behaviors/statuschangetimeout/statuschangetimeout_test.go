@@ -19,7 +19,7 @@ func newTestConn(t *testing.T) (*database.DBConnection, sqlmock.Sqlmock, func())
 		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
 	conn := database.NewTestDBConnection(db)
-	return conn, mock, func() { db.Close() }
+	return conn, mock, func() { _ = db.Close() }
 }
 
 func testLog() *logrus.Entry {

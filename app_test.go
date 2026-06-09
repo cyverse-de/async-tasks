@@ -25,7 +25,7 @@ func newTestApp(t *testing.T) (*AsyncTasksApp, sqlmock.Sqlmock, func()) {
 	conn := database.NewTestDBConnection(db)
 	router := mux.NewRouter()
 	app := NewAsyncTasksApp(conn, router)
-	return app, mock, func() { db.Close() }
+	return app, mock, func() { _ = db.Close() }
 }
 
 // --- Tests for GET /tasks/{id} ---

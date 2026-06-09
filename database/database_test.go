@@ -9,7 +9,6 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/cyverse-de/async-tasks/model"
-	"github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,17 +21,6 @@ func newTestDBConnection(t *testing.T) (*DBConnection, sqlmock.Sqlmock) {
 	}
 	log := logrus.WithField("test", true)
 	return &DBConnection{db: db, log: log}, mock
-}
-
-// newTestDBTxFromConn creates a DBTx using the DBConnection's BeginTx method.
-func newTestDBTxFromConn(t *testing.T, conn *DBConnection, mock sqlmock.Sqlmock) *DBTx {
-	t.Helper()
-	mock.ExpectBegin()
-	tx, err := conn.BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("Failed to begin mock transaction: %v", err)
-	}
-	return tx
 }
 
 // --- Tests for makeTask ---
@@ -76,8 +64,8 @@ func TestMakeTask_AllFields(t *testing.T) {
 		Type:      "full-type",
 		Username:  sql.NullString{String: "testuser", Valid: true},
 		Data:      sql.NullString{String: `{"key":"value","num":42}`, Valid: true},
-		StartDate: pq.NullTime{Time: now, Valid: true},
-		EndDate:   pq.NullTime{Time: later, Valid: true},
+		StartDate: sql.NullTime{Time: now, Valid: true},
+		EndDate:   sql.NullTime{Time: later, Valid: true},
 	}
 
 	task, err := makeTask(dbtask)
@@ -181,7 +169,7 @@ func TestMakeTask_EmptyJSONObject(t *testing.T) {
 
 func TestGetCount_Success(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	rows := sqlmock.NewRows([]string{"count"}).AddRow(int64(42))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM async_tasks`).WillReturnRows(rows)
@@ -201,7 +189,7 @@ func TestGetCount_Success(t *testing.T) {
 
 func TestGetCount_Error(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM async_tasks`).WillReturnError(sql.ErrConnDone)
 
@@ -215,7 +203,7 @@ func TestGetCount_Error(t *testing.T) {
 
 func TestBeginTx_Success(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 
@@ -239,7 +227,7 @@ func TestBeginTx_Success(t *testing.T) {
 
 func TestInsertTask_RequiresType(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -259,7 +247,7 @@ func TestInsertTask_RequiresType(t *testing.T) {
 
 func TestInsertTask_MinimalTask(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -287,7 +275,7 @@ func TestInsertTask_MinimalTask(t *testing.T) {
 
 func TestInsertTask_WithUsernameAndData(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -317,7 +305,7 @@ func TestInsertTask_WithUsernameAndData(t *testing.T) {
 
 func TestInsertTask_WithStatusAndBehavior(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -367,7 +355,7 @@ func TestInsertTask_WithStatusAndBehavior(t *testing.T) {
 // the database layer only inserts Statuses[0].
 func TestInsertTask_OnlyFirstStatusInserted(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -410,7 +398,7 @@ func TestInsertTask_OnlyFirstStatusInserted(t *testing.T) {
 
 func TestInsertTaskStatus_RequiresStatus(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -429,7 +417,7 @@ func TestInsertTaskStatus_RequiresStatus(t *testing.T) {
 
 func TestInsertTaskStatus_WithDefaultDate(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -456,7 +444,7 @@ func TestInsertTaskStatus_WithDefaultDate(t *testing.T) {
 
 func TestInsertTaskBehavior_RequiresType(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -475,7 +463,7 @@ func TestInsertTaskBehavior_RequiresType(t *testing.T) {
 
 func TestInsertTaskBehavior_WithoutData(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -499,7 +487,7 @@ func TestInsertTaskBehavior_WithoutData(t *testing.T) {
 
 func TestInsertTaskBehavior_WithData(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -531,7 +519,7 @@ func TestInsertTaskBehavior_WithData(t *testing.T) {
 // more appropriate.
 func TestCompleteTask_UsesQueryContextNotExec(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -557,7 +545,7 @@ func TestCompleteTask_UsesQueryContextNotExec(t *testing.T) {
 
 func TestDeleteTask_Success(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -585,7 +573,7 @@ func TestGetBaseTask_ReturnsEmptyTaskOnNoRows(t *testing.T) {
 	// Bug: getBaseTask returns a zero-value AsyncTask (ID=="") when no rows match,
 	// rather than returning an explicit error. Callers check task.ID == "" for not-found.
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -613,7 +601,7 @@ func TestGetBaseTask_ReturnsEmptyTaskOnNoRows(t *testing.T) {
 
 func TestGetBaseTask_WithForUpdate(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -644,7 +632,7 @@ func TestGetBaseTask_WithForUpdate(t *testing.T) {
 
 func TestGetTask_FullTask(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -707,7 +695,7 @@ func TestGetTask_FullTask(t *testing.T) {
 // passed to GetTasksByFilter is included in the generated SQL as an ORDER BY clause.
 func TestGetTasksByFilter_OrderParameterApplied(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -746,7 +734,7 @@ func TestGetTasksByFilter_OrderParameterApplied(t *testing.T) {
 // correctly with JOIN-based filters like BehaviorTypes.
 func TestGetTasksByFilter_OrderWithBehaviorFilter(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -780,7 +768,7 @@ func TestGetTasksByFilter_OrderWithBehaviorFilter(t *testing.T) {
 
 func TestGetTasksByFilter_EmptyFilter(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -802,7 +790,7 @@ func TestGetTasksByFilter_EmptyFilter(t *testing.T) {
 
 func TestGetTasksByFilter_CompletedFilter(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -830,7 +818,7 @@ func TestGetTasksByFilter_CompletedFilter(t *testing.T) {
 
 func TestGetTasksByFilter_ByBehaviorType(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -856,7 +844,7 @@ func TestGetTasksByFilter_ByBehaviorType(t *testing.T) {
 
 func TestGetTasksByFilter_ByStatus(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -882,7 +870,7 @@ func TestGetTasksByFilter_ByStatus(t *testing.T) {
 
 func TestGetTasksByFilter_IncludeNullEnd(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -919,7 +907,7 @@ func TestGetTasksByFilter_BehaviorTypeFilterSubqueryHasNoPlaceholders(t *testing
 	// This is technically fine since there are no WHERE conditions in the nested query,
 	// but it's worth documenting.
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -941,7 +929,7 @@ func TestGetTasksByFilter_BehaviorTypeFilterSubqueryHasNoPlaceholders(t *testing
 
 func TestDBTx_Commit(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
@@ -962,7 +950,7 @@ func TestDBTx_Commit(t *testing.T) {
 
 func TestDBTx_Rollback(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
-	defer conn.db.Close()
+	defer func() { _ = conn.db.Close() }()
 
 	mock.ExpectBegin()
 	tx, err := conn.BeginTx(context.Background(), nil)
