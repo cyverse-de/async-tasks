@@ -299,6 +299,7 @@ type TaskFilter struct {
 	EndDateSince    []time.Time
 	EndDateBefore   []time.Time
 	IncludeNullEnd  bool
+	Completed       bool
 	Statuses        []string
 	BehaviorTypes   []string
 }
@@ -353,6 +354,10 @@ func (t *DBTx) GetTasksByFilter(ctx context.Context, filters TaskFilter, order s
 		query = query.Where("end_date < ANY(?)", pq.Array(filters.EndDateBefore))
 	}
 
+	if filters.Completed {
+		query = query.Where("end_date IS NOT NULL")
+	}
+
 	if len(filters.Statuses) > 0 {
 		query = query.Join("async_task_status ON (async_task_status.async_task_id = async_tasks.id AND async_task_status.created_date = (select max(created_date) FROM async_task_status WHERE async_task_id = async_tasks.id))").Where("status = ANY(?)", pq.Array(filters.Statuses))
 	}
@@ -361,6 +366,10 @@ func (t *DBTx) GetTasksByFilter(ctx context.Context, filters TaskFilter, order s
 		nested := psql.Select("async_task_id", "ARRAY_AGG(behavior_type) AS behavior_types").From("async_task_behavior").GroupBy("async_task_id")
 		nestedJoinSelect, _, _ := nested.ToSql()
 		query = query.Join("("+nestedJoinSelect+") AS behaviors ON (behaviors.async_task_id = async_tasks.id)").Where(`behavior_types && ?`, pq.Array(filters.BehaviorTypes))
+	}
+
+	if order != "" {
+		query = query.OrderBy(order)
 	}
 
 	rows, err := query.RunWith(t.tx).QueryContext(ctx)
