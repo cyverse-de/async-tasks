@@ -3,6 +3,7 @@ module github.com/cyverse-de/async-tasks
 go 1.26.0
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/cyverse-de/configurate v0.0.0-20260305004742-e3d1c1150f1e
 	github.com/cyverse-de/dbutil v1.0.1
