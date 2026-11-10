@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"net/http"
+	"os/signal"
+	"syscall"
 
 	"github.com/gorilla/mux"
 
@@ -99,22 +101,20 @@ func main() {
 	updater := NewAsyncTasksUpdater(db)
 	updater.AddBehavior("statuschangetimeout", statuschangetimeout.Processor)
 
-	ticker := time.NewTicker(30 * time.Second) // twice a minute means minutely updates behave basically decently, if we need faster we can change this
-	defer ticker.Stop()
+	// Cancel on SIGTERM/SIGINT so in-flight work stops and releases its locks
+	// before the process exits (e.g. during a rolling deploy).
+	sigCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stopSignals()
 
+	// running twice a minute catches timeouts measured in minutes reasonably
+	// promptly; shorten the interval if finer precision is needed
+	// the 10 minute pass timeout is a long timeout we can use to clear out totally stuck jobs
+	updaterDone := make(chan struct{})
 	go func() {
-		for {
-			t := <-ticker.C
-			log.Infof("Got periodic timer tick: %s", t)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // long timeout we can use to clear out totally stuck jobs
-
-			err := updater.DoPeriodicUpdate(ctx, t, db)
-			if err != nil {
-				log.Error(err)
-			}
-			cancel()
-		}
+		defer close(updaterDone)
+		runPeriodic(sigCtx, 30*time.Second, 10*time.Minute, func(ctx context.Context, t time.Time) error {
+			return updater.DoPeriodicUpdate(ctx, t, db)
+		})
 	}()
 
 	// Make HTTP listeners
@@ -123,6 +123,37 @@ func main() {
 	app := NewAsyncTasksApp(db, router)
 	log.Debug(app)
 
-	log.Infof("Starting to listen on port %s", *port)
-	log.Fatal(http.ListenAndServe(fixAddr(*port), router))
+	server := &http.Server{Addr: fixAddr(*port), Handler: router}
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Infof("Starting to listen on port %s", *port)
+		serverErr <- server.ListenAndServe()
+	}()
+
+	// Stay under the default 30s Kubernetes termination grace period.
+	const shutdownTimeout = 25 * time.Second
+
+	select {
+	case err := <-serverErr:
+		stopSignals() // also cancels sigCtx, stopping the updater
+		if !waitOrTimeout(updaterDone, shutdownTimeout) {
+			log.Warn("Timed out waiting for the periodic updater to stop")
+		}
+		log.Fatal(err)
+	case <-sigCtx.Done():
+		log.Info("Shutting down")
+	}
+	stopSignals() // restore default signal handling so a second signal forces an exit
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Error(err)
+	}
+	// Wait for the in-flight pass to stop and release its locks, within the same budget.
+	select {
+	case <-updaterDone:
+	case <-shutdownCtx.Done():
+		log.Warn("Timed out waiting for the periodic updater to stop")
+	}
 }

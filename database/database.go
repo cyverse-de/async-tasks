@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"database/sql"
+	"database/sql/driver"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/cyverse-de/async-tasks/internal/logutil"
@@ -69,6 +70,54 @@ func (d *DBConnection) GetCount(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return res.count, nil
+}
+
+// TryAdvisoryLock attempts to take a session-level Postgres advisory lock
+// identified by name, without blocking. If the lock is held by someone else,
+// acquired is false and release is nil. Otherwise the caller must call release
+// when done.
+//
+// The lock lives on a dedicated connection, so Postgres drops it automatically
+// if this process dies.
+func (d *DBConnection) TryAdvisoryLock(ctx context.Context, name string) (release func(), acquired bool, err error) {
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	err = conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", name).Scan(&acquired)
+	if err != nil {
+		// The lock may have been granted before the error, so don't pool this session.
+		discardConn(conn)
+		return nil, false, err
+	}
+	if !acquired {
+		_ = conn.Close()
+		return nil, false, nil
+	}
+
+	release = func() {
+		// Use a fresh context: the caller's may already be canceled or timed out.
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		var unlocked bool
+		err := conn.QueryRowContext(unlockCtx, "SELECT pg_advisory_unlock(hashtext($1))", name).Scan(&unlocked)
+		if err != nil || !unlocked {
+			d.log.Errorf("failed to release advisory lock %q (unlocked=%t): %v; discarding the connection", name, unlocked, err)
+			discardConn(conn)
+			return
+		}
+		_ = conn.Close()
+	}
+	return release, true, nil
+}
+
+// discardConn closes the underlying connection instead of returning it to the
+// pool, which drops any session-level locks it holds.
+func discardConn(conn *sql.Conn) {
+	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+	_ = conn.Close()
 }
 
 // BeginTx starts a DBTx for the given DBConnection
@@ -300,6 +349,7 @@ type TaskFilter struct {
 	EndDateBefore   []time.Time
 	IncludeNullEnd  bool
 	Completed       bool
+	Incomplete      bool
 	Statuses        []string
 	BehaviorTypes   []string
 }
@@ -356,6 +406,10 @@ func (t *DBTx) GetTasksByFilter(ctx context.Context, filters TaskFilter, order s
 
 	if filters.Completed {
 		query = query.Where("end_date IS NOT NULL")
+	}
+
+	if filters.Incomplete {
+		query = query.Where("end_date IS NULL")
 	}
 
 	if len(filters.Statuses) > 0 {

@@ -816,6 +816,32 @@ func TestGetTasksByFilter_CompletedFilter(t *testing.T) {
 	}
 }
 
+func TestGetTasksByFilter_IncompleteFilter(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectBegin()
+	tx, err := conn.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+
+	rows := sqlmock.NewRows([]string{"id", "type", "username", "data", "start_date", "end_date"}).
+		AddRow("open-task", "test", nil, nil, time.Now(), nil)
+	mock.ExpectQuery(`SELECT .+ FROM async_tasks .+ end_date IS NULL`).WillReturnRows(rows)
+
+	tasks, err := tx.GetTasksByFilter(context.Background(), TaskFilter{Incomplete: true}, "")
+	if err != nil {
+		t.Fatalf("GetTasksByFilter returned error: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "open-task" {
+		t.Fatalf("Expected the open task, got %+v", tasks)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unmet expectations: %v", err)
+	}
+}
+
 func TestGetTasksByFilter_ByBehaviorType(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
 	defer func() { _ = conn.db.Close() }()
@@ -1065,5 +1091,133 @@ func TestAsyncTaskBehavior_JSONFieldNames(t *testing.T) {
 	}
 	if _, ok := raw["data"]; !ok {
 		t.Error("Expected JSON field 'data'")
+	}
+}
+
+// --- Tests for TryAdvisoryLock ---
+
+func TestTryAdvisoryLock_Acquired(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectQuery(`SELECT pg_try_advisory_lock\(hashtext\(\$1\)\)`).
+		WithArgs("my-lock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
+	mock.ExpectQuery(`SELECT pg_advisory_unlock\(hashtext\(\$1\)\)`).
+		WithArgs("my-lock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
+
+	release, acquired, err := conn.TryAdvisoryLock(context.Background(), "my-lock")
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock returned error: %v", err)
+	}
+	if !acquired {
+		t.Fatal("Expected the lock to be acquired")
+	}
+	release()
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unmet expectations: %v", err)
+	}
+}
+
+func TestTryAdvisoryLock_HeldElsewhere(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectQuery(`SELECT pg_try_advisory_lock`).
+		WithArgs("my-lock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(false))
+	// No unlock may be attempted for a lock we do not hold.
+
+	release, acquired, err := conn.TryAdvisoryLock(context.Background(), "my-lock")
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock returned error: %v", err)
+	}
+	if acquired {
+		t.Fatal("Expected the lock NOT to be acquired")
+	}
+	if release != nil {
+		t.Error("Expected a nil release func when the lock was not acquired")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unmet expectations: %v", err)
+	}
+}
+
+func TestTryAdvisoryLock_QueryError(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectQuery(`SELECT pg_try_advisory_lock`).WillReturnError(sql.ErrConnDone)
+
+	_, acquired, err := conn.TryAdvisoryLock(context.Background(), "my-lock")
+	if err == nil {
+		t.Fatal("Expected an error")
+	}
+	if acquired {
+		t.Error("Lock must not be reported as acquired on error")
+	}
+}
+
+// The release func must still unlock when the caller's context is already
+// canceled (e.g. the 10 minute processing timeout fired or we are shutting down).
+func TestTryAdvisoryLock_ReleaseWorksAfterContextCanceled(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectQuery(`SELECT pg_try_advisory_lock`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
+	mock.ExpectQuery(`SELECT pg_advisory_unlock`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	release, acquired, err := conn.TryAdvisoryLock(ctx, "my-lock")
+	if err != nil || !acquired {
+		t.Fatalf("Expected lock acquired, got acquired=%v err=%v", acquired, err)
+	}
+	cancel()
+	release()
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unmet expectations: %v", err)
+	}
+}
+
+// The server may have granted the lock before the error (e.g. a canceled
+// context), so the connection must be discarded, not returned to the pool.
+func TestTryAdvisoryLock_QueryErrorDiscardsConnection(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectQuery(`SELECT pg_try_advisory_lock`).WillReturnError(context.Canceled)
+	mock.ExpectClose() // the driver connection is closed only if it is discarded
+
+	_, _, err := conn.TryAdvisoryLock(context.Background(), "my-lock")
+	if err == nil {
+		t.Fatal("Expected an error")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Connection was not discarded: %v", err)
+	}
+}
+
+func TestTryAdvisoryLock_UnlockFailureDiscardsConnection(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectQuery(`SELECT pg_try_advisory_lock`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
+	mock.ExpectQuery(`SELECT pg_advisory_unlock`).WillReturnError(sql.ErrConnDone)
+	mock.ExpectClose()
+
+	release, acquired, err := conn.TryAdvisoryLock(context.Background(), "my-lock")
+	if err != nil || !acquired {
+		t.Fatalf("Expected lock acquired, got acquired=%v err=%v", acquired, err)
+	}
+	release()
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Connection was not discarded: %v", err)
 	}
 }
