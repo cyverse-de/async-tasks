@@ -106,6 +106,12 @@ func main() {
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stopSignals()
 
+	go func() {
+		ctx, cancel := context.WithTimeout(sigCtx, 5*time.Minute)
+		defer cancel()
+		completeLegacyProcessorTasks(ctx, db)
+	}()
+
 	// running twice a minute catches timeouts measured in minutes reasonably
 	// promptly; shorten the interval if finer precision is needed
 	// the 10 minute pass timeout is a long timeout we can use to clear out totally stuck jobs

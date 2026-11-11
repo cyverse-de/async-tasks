@@ -1221,3 +1221,36 @@ func TestTryAdvisoryLock_UnlockFailureDiscardsConnection(t *testing.T) {
 		t.Errorf("Connection was not discarded: %v", err)
 	}
 }
+
+// --- Tests for CompleteBehaviorProcessorTasks ---
+
+func TestCompleteBehaviorProcessorTasks(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectExec(`UPDATE async_tasks SET end_date = now\(\) WHERE type LIKE \$1 AND end_date IS NULL`).
+		WithArgs("behaviorprocessor-%").
+		WillReturnResult(sqlmock.NewResult(0, 42))
+
+	n, err := conn.CompleteBehaviorProcessorTasks(context.Background())
+	if err != nil {
+		t.Fatalf("CompleteBehaviorProcessorTasks returned error: %v", err)
+	}
+	if n != 42 {
+		t.Errorf("Expected 42 rows completed, got %d", n)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unmet expectations: %v", err)
+	}
+}
+
+func TestCompleteBehaviorProcessorTasks_Error(t *testing.T) {
+	conn, mock := newTestDBConnection(t)
+	defer func() { _ = conn.db.Close() }()
+
+	mock.ExpectExec(`UPDATE async_tasks`).WillReturnError(sql.ErrConnDone)
+
+	if _, err := conn.CompleteBehaviorProcessorTasks(context.Background()); err == nil {
+		t.Fatal("Expected an error")
+	}
+}

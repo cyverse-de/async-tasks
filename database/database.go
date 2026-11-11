@@ -120,6 +120,20 @@ func discardConn(conn *sql.Conn) {
 	_ = conn.Close()
 }
 
+// CompleteBehaviorProcessorTasks marks any unfinished behaviorprocessor-* tasks
+// as complete. Earlier versions used these tasks as locks; they are no longer used.
+func (d *DBConnection) CompleteBehaviorProcessorTasks(ctx context.Context) (int64, error) {
+	result, err := psql.Update("async_tasks").
+		Set("end_date", squirrel.Expr("now()")).
+		Where("type LIKE ?", "behaviorprocessor-%").
+		Where("end_date IS NULL").
+		RunWith(d.db).ExecContext(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // BeginTx starts a DBTx for the given DBConnection
 func (d *DBConnection) BeginTx(ctx context.Context, opts *sql.TxOptions) (*DBTx, error) {
 	tx, err := d.db.BeginTx(ctx, opts)
