@@ -85,7 +85,7 @@ func (d *DBConnection) TryAdvisoryLock(ctx context.Context, name string) (releas
 		return nil, false, err
 	}
 
-	err = conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", name).Scan(&acquired)
+	err = conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock(hashtext('async-tasks'), hashtext($1))", name).Scan(&acquired)
 	if err != nil {
 		// The lock may have been granted before the error, so don't pool this session.
 		discardConn(conn)
