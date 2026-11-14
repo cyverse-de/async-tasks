@@ -1100,7 +1100,7 @@ func TestTryAdvisoryLock_Acquired(t *testing.T) {
 	conn, mock := newTestDBConnection(t)
 	defer func() { _ = conn.db.Close() }()
 
-	mock.ExpectQuery(`SELECT pg_try_advisory_lock\(hashtext\(\$1\)\)`).
+	mock.ExpectQuery(`SELECT pg_try_advisory_lock\(hashtext\('async-tasks'\), hashtext\(\$1\)\)`).
 		WithArgs("my-lock").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
 	mock.ExpectQuery(`SELECT pg_advisory_unlock\(hashtext\(\$1\)\)`).
