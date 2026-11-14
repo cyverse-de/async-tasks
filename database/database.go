@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"database/sql"
+	"database/sql/driver"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/cyverse-de/async-tasks/internal/logutil"
@@ -69,6 +70,126 @@ func (d *DBConnection) GetCount(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return res.count, nil
+}
+
+// TryAdvisoryLock attempts to take a session-level Postgres advisory lock
+// identified by name, without blocking. If the lock is held by someone else,
+// acquired is false and release is nil. Otherwise the caller must call release
+// when done.
+//
+// The lock lives on a dedicated connection, so Postgres drops it automatically
+// if this process dies.
+func (d *DBConnection) TryAdvisoryLock(ctx context.Context, name string) (release func(), acquired bool, err error) {
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	err = conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock(hashtext('async-tasks'), hashtext($1))", name).Scan(&acquired)
+	if err != nil {
+		// The lock may have been granted before the error, so don't pool this session.
+		discardConn(conn)
+		return nil, false, err
+	}
+	if !acquired {
+		_ = conn.Close()
+		return nil, false, nil
+	}
+
+	release = func() {
+		// Use a fresh context: the caller's may already be canceled or timed out.
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		var unlocked bool
+		err := conn.QueryRowContext(unlockCtx, "SELECT pg_advisory_unlock(hashtext($1))", name).Scan(&unlocked)
+		if err != nil || !unlocked {
+			d.log.Errorf("failed to release advisory lock %q (unlocked=%t): %v; discarding the connection", name, unlocked, err)
+			discardConn(conn)
+			return
+		}
+		_ = conn.Close()
+	}
+	return release, true, nil
+}
+
+// discardConn closes the underlying connection instead of returning it to the
+// pool, which drops any session-level locks it holds.
+func discardConn(conn *sql.Conn) {
+	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+	_ = conn.Close()
+}
+
+// CompleteBehaviorProcessorTasks marks any unfinished behaviorprocessor-* tasks
+// as complete. Earlier versions used these tasks as locks; they are no longer used.
+func (d *DBConnection) CompleteBehaviorProcessorTasks(ctx context.Context) (int64, error) {
+	result, err := psql.Update("async_tasks").
+		Set("end_date", squirrel.Expr("now()")).
+		Where("type LIKE ?", "behaviorprocessor-%").
+		Where("end_date IS NULL").
+		RunWith(d.db).ExecContext(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// statusRules expands a statuschangetimeout behavior's rules, yielding no rows
+// when the data isn't shaped as expected.
+const statusRules = `jsonb_array_elements(CASE WHEN jsonb_typeof(b.data::jsonb->'statuses') = 'array'
+	THEN b.data::jsonb->'statuses' ELSE '[]'::jsonb END)`
+
+// AddMissingCompleteFlags sets "complete": true on statuschangetimeout rules
+// of unfinished tasks that don't specify it, so that stalled tasks get closed.
+// Rules with an explicit value are left alone.
+func (t *DBTx) AddMissingCompleteFlags(ctx context.Context) (int64, error) {
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE async_task_behavior b
+		SET data = jsonb_set(b.data::jsonb, '{statuses}', (
+			SELECT jsonb_agg(CASE WHEN jsonb_typeof(r.e) = 'object' AND r.e->'complete' IS NULL
+				THEN r.e || '{"complete": true}'::jsonb ELSE r.e END ORDER BY r.ord)
+			FROM `+statusRules+` WITH ORDINALITY AS r(e, ord)
+		))::json
+		FROM async_tasks t
+		WHERE t.id = b.async_task_id
+		  AND t.end_date IS NULL
+		  AND b.behavior_type = 'statuschangetimeout'
+		  AND EXISTS (
+			SELECT 1 FROM `+statusRules+` AS r(e)
+			WHERE jsonb_typeof(r.e) = 'object' AND r.e->'complete' IS NULL
+		  )`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// CompleteStalledTasks completes unfinished tasks whose latest status is the
+// end status of a statuschangetimeout rule that has "complete": true. These
+// are tasks that were marked as stalled without being completed.
+func (t *DBTx) CompleteStalledTasks(ctx context.Context) (int64, error) {
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE async_tasks t
+		SET end_date = now()
+		WHERE t.end_date IS NULL
+		  AND EXISTS (
+			SELECT 1
+			FROM async_task_behavior b, `+statusRules+` AS r(e)
+			WHERE b.async_task_id = t.id
+			  AND b.behavior_type = 'statuschangetimeout'
+			  AND jsonb_typeof(r.e) = 'object'
+			  AND r.e->'complete' = 'true'::jsonb
+			  AND r.e->>'end_status' = (
+				SELECT s.status FROM async_task_status s
+				WHERE s.async_task_id = t.id
+				ORDER BY s.created_date DESC
+				LIMIT 1
+			  )
+		  )`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 // BeginTx starts a DBTx for the given DBConnection
@@ -300,6 +421,7 @@ type TaskFilter struct {
 	EndDateBefore   []time.Time
 	IncludeNullEnd  bool
 	Completed       bool
+	Incomplete      bool
 	Statuses        []string
 	BehaviorTypes   []string
 }
@@ -356,6 +478,10 @@ func (t *DBTx) GetTasksByFilter(ctx context.Context, filters TaskFilter, order s
 
 	if filters.Completed {
 		query = query.Where("end_date IS NOT NULL")
+	}
+
+	if filters.Incomplete {
+		query = query.Where("end_date IS NULL")
 	}
 
 	if len(filters.Statuses) > 0 {
