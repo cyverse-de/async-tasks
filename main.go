@@ -110,6 +110,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(sigCtx, 5*time.Minute)
 		defer cancel()
 		completeLegacyProcessorTasks(ctx, db)
+		completeLegacyStatusChangeTimeoutTasks(ctx, db)
 	}()
 
 	// running twice a minute catches timeouts measured in minutes reasonably

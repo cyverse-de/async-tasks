@@ -134,6 +134,64 @@ func (d *DBConnection) CompleteBehaviorProcessorTasks(ctx context.Context) (int6
 	return result.RowsAffected()
 }
 
+// statusRules expands a statuschangetimeout behavior's rules, yielding no rows
+// when the data isn't shaped as expected.
+const statusRules = `jsonb_array_elements(CASE WHEN jsonb_typeof(b.data::jsonb->'statuses') = 'array'
+	THEN b.data::jsonb->'statuses' ELSE '[]'::jsonb END)`
+
+// AddMissingCompleteFlags sets "complete": true on statuschangetimeout rules
+// of unfinished tasks that don't specify it, so that stalled tasks get closed.
+// Rules with an explicit value are left alone.
+func (t *DBTx) AddMissingCompleteFlags(ctx context.Context) (int64, error) {
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE async_task_behavior b
+		SET data = jsonb_set(b.data::jsonb, '{statuses}', (
+			SELECT jsonb_agg(CASE WHEN jsonb_typeof(r.e) = 'object' AND r.e->'complete' IS NULL
+				THEN r.e || '{"complete": true}'::jsonb ELSE r.e END ORDER BY r.ord)
+			FROM `+statusRules+` WITH ORDINALITY AS r(e, ord)
+		))::json
+		FROM async_tasks t
+		WHERE t.id = b.async_task_id
+		  AND t.end_date IS NULL
+		  AND b.behavior_type = 'statuschangetimeout'
+		  AND EXISTS (
+			SELECT 1 FROM `+statusRules+` AS r(e)
+			WHERE jsonb_typeof(r.e) = 'object' AND r.e->'complete' IS NULL
+		  )`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// CompleteStalledTasks completes unfinished tasks whose latest status is the
+// end status of a statuschangetimeout rule that has "complete": true. These
+// are tasks that were marked as stalled without being completed.
+func (t *DBTx) CompleteStalledTasks(ctx context.Context) (int64, error) {
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE async_tasks t
+		SET end_date = now()
+		WHERE t.end_date IS NULL
+		  AND EXISTS (
+			SELECT 1
+			FROM async_task_behavior b, `+statusRules+` AS r(e)
+			WHERE b.async_task_id = t.id
+			  AND b.behavior_type = 'statuschangetimeout'
+			  AND jsonb_typeof(r.e) = 'object'
+			  AND r.e->'complete' = 'true'::jsonb
+			  AND r.e->>'end_status' = (
+				SELECT s.status FROM async_task_status s
+				WHERE s.async_task_id = t.id
+				ORDER BY s.created_date DESC
+				LIMIT 1
+			  )
+		  )`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // BeginTx starts a DBTx for the given DBConnection
 func (d *DBConnection) BeginTx(ctx context.Context, opts *sql.TxOptions) (*DBTx, error) {
 	tx, err := d.db.BeginTx(ctx, opts)

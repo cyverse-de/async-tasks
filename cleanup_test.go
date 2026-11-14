@@ -43,3 +43,42 @@ func TestCompleteLegacyProcessorTasks_ErrorIsNotFatal(t *testing.T) {
 		t.Errorf("Unmet expectations: %v", err)
 	}
 }
+
+func TestCompleteLegacyStatusChangeTimeoutTasks_RunsBothStepsInOneTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("Failed to create sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// The flags must be added before stalled tasks are completed.
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE async_task_behavior`).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(`UPDATE async_tasks`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	completeLegacyStatusChangeTimeoutTasks(context.Background(), database.NewTestDBConnection(db))
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unmet expectations: %v", err)
+	}
+}
+
+func TestCompleteLegacyStatusChangeTimeoutTasks_RollsBackOnError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("Failed to create sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE async_task_behavior`).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(`UPDATE async_tasks`).WillReturnError(fmt.Errorf("db down"))
+	mock.ExpectRollback()
+
+	completeLegacyStatusChangeTimeoutTasks(context.Background(), database.NewTestDBConnection(db))
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unmet expectations: %v", err)
+	}
+}
