@@ -92,69 +92,36 @@ func TestProcessor_FiltersByBehaviorType(t *testing.T) {
 	}
 }
 
-// TestProcessor_DoesNotFilterCompletedTasks documents that the Processor's filter
-// does NOT exclude tasks that have end_date set (completed tasks). It processes all
-// tasks with the statuschangetimeout behavior regardless of completion status.
-func TestProcessor_DoesNotFilterCompletedTasks(t *testing.T) {
+// TestProcessor_OnlyQueriesIncompleteTasks verifies that the Processor asks the
+// database only for tasks that have not ended.
+func TestProcessor_OnlyQueriesIncompleteTasks(t *testing.T) {
 	conn, mock, cleanup := newTestConn(t)
 	defer cleanup()
 
-	now := time.Now()
-	completedEndDate := now.Add(-time.Hour)
-
 	mock.ExpectBegin()
-	// Return a completed task (end_date is set)
-	filterRows := sqlmock.NewRows([]string{"id", "type", "username", "data", "start_date", "end_date"}).
-		AddRow("completed-task", "test", nil, nil, now.Add(-2*time.Hour), completedEndDate)
-	mock.ExpectQuery(`SELECT .+ FROM async_tasks`).WillReturnRows(filterRows)
+	rows := sqlmock.NewRows([]string{"id", "type", "username", "data", "start_date", "end_date"})
+	mock.ExpectQuery(`SELECT .+ FROM async_tasks .+ end_date IS NULL`).WillReturnRows(rows)
 	mock.ExpectRollback()
 
-	// processSingleTask will be called for the completed task
-	// It needs its own transaction
-	mock.ExpectBegin()
-	// GetTask (getBaseTask)
-	taskRows := sqlmock.NewRows([]string{"id", "type", "username", "data", "start_date", "end_date"}).
-		AddRow("completed-task", "test", nil, nil, now.Add(-2*time.Hour), completedEndDate)
-	mock.ExpectQuery(`SELECT .+ FROM async_tasks`).WillReturnRows(taskRows)
-	// getTaskBehaviors
-	behaviorData, _ := json.Marshal(map[string]interface{}{
-		"statuses": []map[string]interface{}{
-			{"start_status": "running", "end_status": "timed-out", "timeout": "30m", "complete": true},
-		},
-	})
-	behaviorRows := sqlmock.NewRows([]string{"behavior_type", "data"}).
-		AddRow("statuschangetimeout", string(behaviorData))
-	mock.ExpectQuery(`SELECT .+ FROM async_task_behavior`).WillReturnRows(behaviorRows)
-	// getTaskStatuses
-	statusRows := sqlmock.NewRows([]string{"status", "detail", "created_date"}).
-		AddRow("completed", nil, now.Add(-time.Hour))
-	mock.ExpectQuery(`SELECT .+ FROM async_task_status`).WillReturnRows(statusRows)
-	// Commit (even if no changes were made, processSingleTask always commits)
-	mock.ExpectCommit()
-
-	err := Processor(context.Background(), testLog(), now, conn)
+	err := Processor(context.Background(), testLog(), time.Now(), conn)
 	if err != nil {
 		t.Fatalf("Processor returned error: %v", err)
 	}
 
-	// The test passing means the completed task WAS processed (the DB interactions
-	// for processSingleTask all happened). This documents the bug that completed
-	// tasks are still processed.
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("Unmet expectations: %v", err)
 	}
 }
 
-// TestProcessor_PassesOrderParam verifies that the Processor passes
-// "end_date IS NOT NULL DESC" as the order parameter to GetTasksByFilter,
-// which is now applied as an ORDER BY clause.
+// TestProcessor_PassesOrderParam verifies that the Processor orders its query
+// (oldest task first, so the longest-stalled tasks are handled first).
 func TestProcessor_PassesOrderParam(t *testing.T) {
 	conn, mock, cleanup := newTestConn(t)
 	defer cleanup()
 
 	mock.ExpectBegin()
 	rows := sqlmock.NewRows([]string{"id", "type", "username", "data", "start_date", "end_date"})
-	mock.ExpectQuery(`SELECT .+ FROM async_tasks .+ ORDER BY`).WillReturnRows(rows)
+	mock.ExpectQuery(`SELECT .+ FROM async_tasks .+ ORDER BY start_date ASC$`).WillReturnRows(rows)
 	mock.ExpectRollback()
 
 	err := Processor(context.Background(), testLog(), time.Now(), conn)

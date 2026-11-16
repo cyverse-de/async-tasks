@@ -128,6 +128,7 @@ func processSingleTask(ctx context.Context, log *logrus.Entry, db *database.DBCo
 func Processor(ctx context.Context, log *logrus.Entry, _ time.Time, db *database.DBConnection) error {
 	filter := database.TaskFilter{
 		BehaviorTypes: []string{"statuschangetimeout"},
+		Incomplete:    true, // completed tasks can never time out
 	}
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -136,7 +137,7 @@ func Processor(ctx context.Context, log *logrus.Entry, _ time.Time, db *database
 	}
 	defer logutil.LogIfError(log, tx.Rollback, sql.ErrTxDone)
 
-	tasks, err := tx.GetTasksByFilter(ctx, filter, "end_date IS NOT NULL DESC")
+	tasks, err := tx.GetTasksByFilter(ctx, filter, "start_date ASC")
 	if err != nil {
 		return err
 	}
